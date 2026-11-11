@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redline Circuit</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060a; overflow: hidden; color: #fff; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { pointer-events: none; }
+  #menu { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(5,6,12,.35), rgba(5,6,12,.8)); }
+  #menu.open { display: flex; }
+  .panel { width: min(680px, 94vw); max-height: 94vh; display: flex; flex-direction: column; background: linear-gradient(160deg, rgba(18,22,36,.94), rgba(10,12,20,.94)); border: 1px solid rgba(255,255,255,.1); border-radius: 18px; padding: 26px 30px 18px; box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08); box-sizing: border-box; }
+  .panel h1 { margin: 0 0 4px; font-size: 38px; font-style: italic; font-weight: 900; letter-spacing: -1px; text-transform: uppercase; background: linear-gradient(90deg, #ff3b3b, #ffb13c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .panel .sub { margin: 0 0 12px; color: #9aa6bd; font-size: 15px; }
+  .panel .body { margin: 4px 0 12px; font-size: 15px; color: #dfe5f2; overflow: auto; flex-shrink: 0; max-height: 46vh; }
+  .panel ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  .panel li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 14px; margin: 2px 0; border-radius: 10px; font-size: 18px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+  .panel li.focus { background: linear-gradient(90deg, rgba(255,59,59,.28), rgba(255,177,60,.12)); border-color: rgba(255,120,80,.55); }
+  .panel li.action .label { font-style: italic; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+  .panel .val { display: flex; align-items: center; gap: 10px; color: #ffd23c; font-weight: 700; }
+  .panel .val b { color: #7f8aa3; font-size: 22px; padding: 0 6px; }
+  .panel li.focus .val b { color: #fff; }
+  .panel input { background: rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.2); color: #ffd23c; font: inherit; font-weight: 700; padding: 4px 10px; border-radius: 8px; width: 190px; text-align: right; user-select: text; }
+  .panel .hint { margin-top: 12px; color: #7f8aa3; font-size: 13px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .hint kbd { background: rgba(255,255,255,.12); border-radius: 5px; padding: 1px 7px; color: #fff; font: inherit; font-weight: 700; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 15px; }
+  table.t td, table.t th { padding: 4px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.07); }
+  table.t th { color: #7f8aa3; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  table.t tr.me td { color: #ffd23c; font-weight: 800; }
+  table.t td.r, table.t th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 7px; border: 1px solid rgba(255,255,255,.5); vertical-align: -1px; }
+  .code { font-size: 44px; font-weight: 900; letter-spacing: 8px; color: #ffd23c; font-style: italic; }
+  .cars { display: flex; gap: 18px; align-items: center; }
+  .cars canvas { position: static; width: 152px; height: 96px; }
+  .stat { display: grid; grid-template-columns: 90px 1fr; gap: 3px 10px; font-size: 12px; color: #9aa6bd; align-items: center; flex: 1; }
+  .stat i { display: block; height: 7px; border-radius: 4px; background: linear-gradient(90deg, #ff3b3b, #ffb13c); }
+  #padtest { position: fixed; left: 8px; bottom: 8px; font: 12px monospace; background: rgba(0,0,0,.7); padding: 8px; white-space: pre; display: none; z-index: 5; }
+  #fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 30px; font-size: 20px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="hud"></canvas>
+<div id="menu"></div>
+<div id="padtest"></div>
+<div id="fatal"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
