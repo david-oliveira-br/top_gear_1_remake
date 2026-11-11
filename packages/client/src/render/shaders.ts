@@ -32,7 +32,9 @@ void main(){
   vec3 ground=mix(uGrassA,uGrassB,band*0.7)*(0.82+0.34*gn);
   float rn=noise(vec2(u*80.,v*18.))*lod+0.5*(1.-lod);
   vec3 road=uRoad*(0.9+0.2*rn)*(1.-0.05*band);
-  road*=1.-0.1*exp(-pow((au-0.33)*7.,2.))*0.0;
+  float wear=exp(-pow((au-0.17)*9.,2.))+exp(-pow((au-0.5)*9.,2.));
+  road*=1.-0.07*wear;
+  road*=1.-0.16*smoothstep(0.62,0.85,noise(vec2(u*16.,v*0.11)))*wear*lod;
   road=mix(road,vec3(0.93,0.95,1.),uSnowy*0.35*noise(vec2(u*9.,v*2.)));
   float dash=step(0.5,fract(v/8.));
   float lane=(1.-smoothstep(0.011,0.011+fw,abs(au-0.3333)))*dash;
@@ -59,7 +61,7 @@ void main(){
   float lat=abs(vCam.x)/(1700.+z*0.42);
   float hl=uHead*(1.-smoothstep(0.35,1.,d))*(1.-smoothstep(0.55,1.,lat));
   col*=uAmb+vec3(1.,0.95,0.8)*hl*1.15;
-  float fog=1.-exp(-pow(z/uFogDist,2.));
+  float fog=min(0.8,1.-exp(-pow(z/uFogDist,2.)));
   o=vec4(mix(col,uFog,fog),1.);
 }`;
 
@@ -72,12 +74,13 @@ void main(){ vUV=aUV; vCol=aCol; vMode=aMode; vCam=aPos; gl_Position=proj(aPos);
 export const SPRITE_FS = `#version 300 es
 precision highp float;
 in vec2 vUV; in vec4 vCol; in float vMode; in vec3 vCam; out vec4 o;
-uniform sampler2D uTex,uEmis; uniform vec3 uAmb,uFog; uniform float uFogDist,uHead,uNight;
+uniform sampler2D uTex,uEmis,uCar,uCarEmis; uniform vec3 uAmb,uFog; uniform float uFogDist,uHead,uNight;
 void main(){
-  vec4 t=texture(uTex,vUV);
-  float fog=1.-exp(-pow(vCam.z/uFogDist,2.));
-  if(vMode>0.5){ float a=t.a*vCol.a*(1.-fog*0.8); o=vec4(vCol.rgb*a,0.); return; }
-  vec4 em=texture(uEmis,vUV);
+  float isCar=step(1.5,vMode);
+  vec4 t=mix(texture(uTex,vUV),texture(uCar,vUV),isCar);
+  float fog=min(0.8,1.-exp(-pow(vCam.z/uFogDist,2.)));
+  if(vMode>0.5&&vMode<1.5){ float a=t.a*vCol.a*(1.-fog*0.8); o=vec4(vCol.rgb*a,0.); return; }
+  vec4 em=mix(texture(uEmis,vUV),texture(uCarEmis,vUV),isCar);
   float d=vCam.z/9500.;
   float lat=abs(vCam.x)/(1700.+vCam.z*0.42);
   float hl=uHead*(1.-smoothstep(0.35,1.,d))*(1.-smoothstep(0.55,1.,lat));
@@ -94,17 +97,12 @@ void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.,1.); }`;
 export const SKY_FS = `#version 300 es
 precision highp float;
 out vec4 o;
-uniform vec4 uRect; uniform vec3 uTop,uHor,uSunCol,uGround,uSil1,uSil2,uCloudCol;
-uniform vec2 uSun; uniform float uStars,uOff,uHorizon,uSil,uCloud,uTime,uAurora,uLights,uFlash;
+uniform vec4 uRect,uPano; uniform vec3 uTop,uHor,uSunCol,uGround,uSkyAmb,uCloudCol;
+uniform sampler2D uFar,uNear,uLightTex;
+uniform vec2 uSun; uniform float uStars,uOff,uHorizon,uCloud,uTime,uAurora,uLights,uFlash,uLightLayer;
 ${NOISE}
 float fbm1(float x){ return noise1(x)*0.55+noise1(x*2.3+7.)*0.28+noise1(x*5.1+3.)*0.17; }
 float fbm(vec2 p){ return noise(p)*0.5+noise(p*2.1+5.)*0.3+noise(p*4.3+9.)*0.2; }
-float sil(float x,float layer){
-  if(uSil<0.5) return layer<0.5 ? 0.07+0.3*fbm1(x*1.6+11.) : 0.02+0.16*fbm1(x*3.1+40.);
-  if(uSil<1.5){ float b=floor(x*(layer<0.5?16.:9.)+layer*31.); return (layer<0.5?0.06:0.02)+(layer<0.5?0.3:0.16)*hash1(b)*hash1(b+3.7); }
-  float m=noise1(x*(layer<0.5?1.3:2.2)+layer*17.);
-  return (layer<0.5?0.05:0.015)+(layer<0.5?0.2:0.1)*smoothstep(0.45,0.56,m)+0.015*noise1(x*9.);
-}
 void main(){
   vec2 uv=(gl_FragCoord.xy-uRect.xy)/uRect.zw; float asp=uRect.z/uRect.w;
   float y=(uv.y-uHorizon)/(1.-uHorizon);
@@ -116,21 +114,21 @@ void main(){
     vec2 sp=vec2(x+uOff*0.04,y)*70.; vec2 id=floor(sp);
     col+=uStars*step(0.975,hash(id))*smoothstep(0.4,0.,length(fract(sp)-0.5))*(0.6+0.4*sin(uTime*3.+hash(id)*40.));
     float sx=(uSun.x-0.5)*asp-sin(uOff*0.25)*0.35;
-    float d=length(vec2(x-sx,(y-uSun.y)*0.9));
+    float d=length(vec2(x-sx,(y-uSun.y)*(1.-uHorizon)));
     col+=uSunCol*(smoothstep(0.07,0.062,d)+0.4*exp(-d*5.));
     float au=uAurora*smoothstep(0.15,0.5,y)*exp(-abs(y-0.6)*4.)*(0.5+0.5*sin((x+uOff*0.03)*5.+sin(y*9.+uTime*0.35)*1.6));
     col+=vec3(0.1,0.95,0.5)*au*0.7+vec3(0.5,0.1,0.8)*au*au*0.3;
     float c=fbm(vec2(x*1.4+uOff*0.07+uTime*0.008,y*5.));
     float cl=smoothstep(1.-uCloud,1.15-uCloud*0.8,c+0.25*(1.-y));
     col=mix(col,uCloudCol,cl*0.85);
-    float h0=sil(x+uOff*0.12,0.);
-    if(y<h0){ col=mix(uSil1,uHor,0.35+0.3*y/h0*0.);
-      if(uSil>0.5&&uSil<1.5){ float px=(x+uOff*0.12)*16.; vec2 w=vec2(floor(fract(px)*5.)+floor(px)*9.,floor(y*160.));
-        col+=uLights*vec3(1.,0.85,0.5)*step(0.62,hash(w))*step(0.15,fract(fract(px)*5.))*step(0.3,fract(y*160.))*0.7; } }
-    float h1=sil(x+uOff*0.25,1.);
-    if(y<h1){ col=uSil2;
-      if(uSil>0.5&&uSil<1.5){ float px=(x+uOff*0.25)*9.; vec2 w=vec2(floor(fract(px)*6.)+floor(px)*13.,floor(y*110.));
-        col+=uLights*vec3(1.,0.8,0.45)*step(0.55,hash(w))*step(0.2,fract(fract(px)*6.))*step(0.35,fract(y*110.))*0.8; } }
+    vec2 fu=vec2((x+uOff*0.12)/uPano.x,1.-y/uPano.y);
+    vec4 ft=texture(uFar,vec2(fu.x,max(fu.y,0.002)))*step(0.,fu.y);
+    vec3 fc=mix(ft.rgb*uSkyAmb,uHor*ft.a,0.4)+uLights*texture(uLightTex,vec2(fu.x,max(fu.y,0.002))).rgb*step(0.,fu.y)*(1.-uLightLayer)*0.9;
+    col=col*(1.-ft.a)+fc;
+    vec2 nu=vec2((x+uOff*0.26)/uPano.z,1.-y/uPano.w);
+    vec4 nt=texture(uNear,vec2(nu.x,max(nu.y,0.002)))*step(0.,nu.y);
+    vec3 nc=mix(nt.rgb*uSkyAmb,uHor*nt.a,0.14)+uLights*texture(uLightTex,vec2(nu.x,max(nu.y,0.002))).rgb*step(0.,nu.y)*uLightLayer;
+    col=col*(1.-nt.a)+nc;
     col=mix(col,vec3(0.8,0.85,1.),uFlash*0.45*step(0.,y));
   }
   o=vec4(col,1.);
@@ -181,7 +179,7 @@ void main(){
   float blur=(uViews>1.5&&top<0.5)?uBlur.y:uBlur.x;
   vec2 d=uv-c; float r2=dot(d,d)*(uViews>1.5?8.:4.);
   vec3 col=vec3(0.);
-  for(int i=0;i<8;i++){ float s=1.-blur*0.008*float(i)*r2; col+=texture(uScene,c+d*s).rgb; }
+  for(int i=0;i<8;i++){ float s=1.-blur*0.005*float(i)*r2; col+=texture(uScene,c+d*s).rgb; }
   col/=8.;
   col+=texture(uBloom,uv).rgb*uBloomAmt;
   if(uRain>0.){ float r=rain(uv,0.)+rain(uv*1.3+3.,1.)*0.7+rain(uv*1.7+9.,2.)*0.5; col=mix(col,vec3(0.78,0.84,0.95),clamp(r,0.,1.)*0.3*uRain); }

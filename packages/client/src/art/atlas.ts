@@ -1,4 +1,5 @@
-import { CAR_CLASSES, CAR_COLORS, mulberry32 } from '../../../shared/src/index';
+import { mulberry32 } from '../../../shared/src/index';
+import { shade } from './cars';
 
 export interface SpriteInfo { u0: number; v0: number; u1: number; v1: number; w: number; h: number }
 export interface Atlas { base: HTMLCanvasElement; emis: HTMLCanvasElement; sprites: Record<string, SpriteInfo> }
@@ -7,11 +8,6 @@ type Draw = (g: G, e: G, w: number, h: number) => void;
 
 const AW = 4096, AH = 2048, PAD = 4;
 
-function shade(hex: string, k: number) {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (c: number) => Math.round(k >= 0 ? c + (255 - c) * k : c * (1 + k));
-  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
-}
 function rr(g: G, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath(); g.roundRect(x, y, w, h, r);
 }
@@ -31,10 +27,10 @@ function trunk(g: G, x: number, y0: number, y1: number, w: number, col = '#5a3b2
   g.fillStyle = gr; poly(g, [x - w * 0.6, y0, x + w * 0.6, y0, x + w, y1, x - w, y1]); g.fill();
 }
 
-function leafy(cols: [string, string], seed: number, flowers?: string): Draw {
+function leafy(cols: [string, string], seed: number, flowers?: string, bark = '#5a3b22'): Draw {
   return (g, _e, w, h) => {
     const r = mulberry32(seed);
-    trunk(g, w / 2, h * 0.45, h, w * 0.06);
+    trunk(g, w / 2, h * 0.45, h, w * 0.06, bark);
     for (let i = 0; i < 26; i++) {
       const a = r() * 6.28, d = Math.sqrt(r()) * w * 0.3;
       const x = w / 2 + Math.cos(a) * d, y = h * 0.36 + Math.sin(a) * d * 0.8, rad = w * (0.1 + r() * 0.09);
@@ -90,9 +86,9 @@ const bush: Draw = (g, _e, w, h) => {
   const r = mulberry32(5);
   for (let i = 0; i < 12; i++) blob(g, w * (0.18 + r() * 0.64), h * (0.45 + r() * 0.3), w * (0.13 + r() * 0.08), '#2c7a36', '#63b85a');
 };
-function rock(snow: boolean): Draw {
+function rock(snow: boolean, c0 = '#9a938c', c1 = '#4e4944'): Draw {
   return (g, _e, w, h) => {
-    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#9a938c'); gr.addColorStop(1, '#4e4944');
+    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, c0); gr.addColorStop(1, c1);
     g.fillStyle = gr; poly(g, [w * 0.05, h, w * 0.15, h * 0.45, w * 0.4, h * 0.1, w * 0.7, h * 0.2, w * 0.95, h * 0.65, w * 0.98, h]); g.fill();
     g.fillStyle = 'rgba(0,0,0,.2)'; poly(g, [w * 0.55, h, w * 0.7, h * 0.2, w * 0.95, h * 0.65, w * 0.98, h]); g.fill();
     if (snow) { g.fillStyle = '#f4f8ff'; poly(g, [w * 0.15, h * 0.45, w * 0.4, h * 0.1, w * 0.7, h * 0.2, w * 0.8, h * 0.42, w * 0.6, h * 0.35, w * 0.42, h * 0.48, w * 0.3, h * 0.38]); g.fill(); }
@@ -183,54 +179,59 @@ const glow: Draw = (g, _e, w, h) => {
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
 };
 
-/** Rear view of a car. frame 0..2 = increasingly turned to the right. */
-function car(cls: number, color: string, frame: number): Draw {
+const cypress: Draw = (g, _e, w, h) => {
+  trunk(g, w / 2, h * 0.86, h, w * 0.09);
+  const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, '#3f7a3a'); gr.addColorStop(0.45, '#255c2c'); gr.addColorStop(1, '#0f331a');
+  g.fillStyle = gr; g.beginPath(); g.moveTo(w / 2, 0); g.bezierCurveTo(w * 0.98, h * 0.3, w * 0.95, h * 0.8, w / 2, h * 0.92); g.bezierCurveTo(w * 0.05, h * 0.8, w * 0.02, h * 0.3, w / 2, 0); g.fill();
+  g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 2; for (let i = 1; i < 9; i++) { g.beginPath(); g.moveTo(w * 0.3, h * i * 0.1); g.quadraticCurveTo(w / 2, h * (i * 0.1 + 0.04), w * 0.7, h * i * 0.1); g.stroke(); }
+};
+const haybale: Draw = (g, _e, w, h) => {
+  blob(g, w / 2, h * 0.55, h * 0.44, '#b8892e', '#f0d27a');
+  g.strokeStyle = 'rgba(110,70,10,.5)'; g.lineWidth = 2; for (let r = 0.1; r < 0.44; r += 0.08) { g.beginPath(); g.arc(w / 2, h * 0.55, h * r, 0, 7); g.stroke(); }
+};
+const hedge: Draw = (g, _e, w, h) => {
+  const r = mulberry32(21);
+  for (let i = 0; i < 26; i++) blob(g, w * (0.05 + (i / 26) * 0.9), h * (0.5 + r() * 0.2), h * (0.3 + r() * 0.12), '#245f2a', '#5fa44e');
+};
+const ruin: Draw = (g, _e, w, h) => {
+  const col = (x: number, top: number) => {
+    const gr = g.createLinearGradient(x, 0, x + w * 0.13, 0); gr.addColorStop(0, '#ecd9a8'); gr.addColorStop(1, '#9a8355');
+    g.fillStyle = gr; g.fillRect(x, top, w * 0.13, h - top); g.fillStyle = '#d9c38e'; g.fillRect(x - w * 0.02, top, w * 0.17, h * 0.05); g.fillRect(x - w * 0.02, h * 0.95, w * 0.17, h * 0.05);
+    g.strokeStyle = 'rgba(80,60,20,.35)'; g.lineWidth = 2; for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo(x + (w * 0.13 * k) / 4, top + h * 0.06); g.lineTo(x + (w * 0.13 * k) / 4, h * 0.94); g.stroke(); }
+  };
+  col(w * 0.08, h * 0.18); col(w * 0.43, h * 0.18); col(w * 0.78, h * 0.5);
+  g.fillStyle = '#cbb37a'; poly(g, [w * 0.04, h * 0.18, w * 0.62, h * 0.18, w * 0.6, h * 0.06, w * 0.04, h * 0.08]); g.fill();
+};
+const fence: Draw = (g, _e, w, h) => {
+  g.fillStyle = '#4b5059'; for (let i = 0; i < 5; i++) g.fillRect(w * (0.04 + i * 0.23), h * 0.2, w * 0.025, h * 0.8);
+  const gr = g.createLinearGradient(0, h * 0.2, 0, h * 0.75); gr.addColorStop(0, '#e9edf2'); gr.addColorStop(0.5, '#9aa2ad'); gr.addColorStop(1, '#5d646e');
+  g.fillStyle = gr; rr(g, 0, h * 0.22, w, h * 0.24, 4); g.fill(); rr(g, 0, h * 0.52, w, h * 0.24, 4); g.fill();
+};
+const gantry: Draw = (g, e, w, h) => {
+  for (const x of [0, w - 26]) { g.fillStyle = '#6b7280'; g.fillRect(x, h * 0.05, 26, h * 0.95); }
+  g.fillStyle = '#4a5160'; g.fillRect(0, h * 0.05, w, h * 0.07); g.fillRect(0, h * 0.36, w, h * 0.04);
+  for (const [x, t] of [[0.2, 'PIT LANE'], [0.57, 'CIRCUIT']] as [number, string][]) {
+    for (const c of [g, e]) { c.globalAlpha = c === e ? 0.45 : 1; c.fillStyle = '#126a3c'; rr(c, w * x, h * 0.1, w * 0.24, h * 0.27, 6); c.fill(); c.fillStyle = '#fff'; c.font = `700 ${h * 0.11}px Arial, sans-serif`; c.textAlign = 'center'; c.fillText(t, w * (x + 0.12), h * 0.28); c.globalAlpha = 1; }
+  }
+};
+function tunnel(face: string, stripes: boolean): Draw {
   return (g, e, w, h) => {
-    const cx = w / 2, by = h - 8;
-    const bw = [108, 114, 102, 110][cls], bh = [34, 30, 34, 38][cls], roofH = [24, 20, 25, 28][cls];
-    const sh = frame * 7, side = frame * 9;
-    const x0 = cx - bw / 2 + side * 0.4, x1 = x0 + bw, top = by - 10 - bh;
-    g.fillStyle = 'rgba(0,0,0,.42)'; g.beginPath(); g.ellipse(cx, by + 1, bw * 0.6 + side * 0.4, 7, 0, 0, 7); g.fill();
-    // side panel (visible when turned)
-    if (frame > 0) {
-      const gr = g.createLinearGradient(x0 - side, 0, x0, 0); gr.addColorStop(0, shade(color, -0.55)); gr.addColorStop(1, shade(color, -0.25));
-      g.fillStyle = gr; poly(g, [x0 + 3, top + 4, x0 - side, top + 9, x0 - side, by - 12, x0 + 3, by - 8]); g.fill();
-      g.fillStyle = '#0c0c0e'; rr(g, x0 - side - 1, by - 22, side * 0.9, 21, 4); g.fill();
-    }
-    // tyres
-    g.fillStyle = '#0c0c0e';
-    rr(g, x0 + 1, by - 22, 17, 22, 4); g.fill(); rr(g, x1 - 18, by - 22, 17, 22, 4); g.fill();
-    // body
-    const gr = g.createLinearGradient(0, top, 0, by - 8);
-    gr.addColorStop(0, shade(color, 0.3)); gr.addColorStop(0.35, color); gr.addColorStop(1, shade(color, -0.45));
-    g.fillStyle = gr; rr(g, x0, top, bw, bh, 9); g.fill();
-    g.fillStyle = '#15161a'; rr(g, x0 + 8, by - 20, bw - 16, 12, 4); g.fill();
-    // cabin
-    const cb = bw * 0.8, ct = bw * 0.56, ccx = cx + side * 0.4 + sh * 0.5;
-    g.fillStyle = shade(color, -0.15);
-    poly(g, [ccx - cb / 2, top + 3, ccx - ct / 2 + sh * 0.5, top - roofH, ccx + ct / 2 + sh * 0.5, top - roofH, ccx + cb / 2, top + 3]); g.fill();
-    const gg = g.createLinearGradient(0, top - roofH, 0, top);
-    gg.addColorStop(0, '#0d1420'); gg.addColorStop(0.6, '#2a3d55'); gg.addColorStop(1, '#6e8aa6');
-    g.fillStyle = gg;
-    poly(g, [ccx - cb / 2 + 8, top + 1, ccx - ct / 2 + sh * 0.5 + 5, top - roofH + 5, ccx + ct / 2 + sh * 0.5 - 5, top - roofH + 5, ccx + cb / 2 - 8, top + 1]); g.fill();
-    // spoiler
-    if (cls === 1 || cls === 2) {
-      g.fillStyle = '#15161a'; g.fillRect(x0 + 16, top - 9, 4, 10); g.fillRect(x1 - 20, top - 9, 4, 10);
-      g.fillStyle = shade(color, -0.3); rr(g, x0 + 2, top - 13, bw - 4, 6, 2); g.fill();
-    } else { g.fillStyle = shade(color, 0.2); rr(g, x0 + 6, top - 1, bw - 12, 4, 2); g.fill(); }
-    // lights
-    for (const c of [g, e]) {
-      c.fillStyle = c === g ? '#d81e1e' : '#ff4030';
-      if (cls === 3) { rr(c, x0 + 6, top + 8, 14, 12, 3); c.fill(); rr(c, x1 - 20, top + 8, 14, 12, 3); c.fill(); }
-      else if (cls === 1) { rr(c, x0 + 8, top + 8, bw - 16, 5, 2); c.fill(); }
-      else { rr(c, x0 + 6, top + 8, 26, 7, 3); c.fill(); rr(c, x1 - 32, top + 8, 26, 7, 3); c.fill(); }
-    }
-    g.fillStyle = '#e9e9e2'; g.fillRect(cx + side * 0.4 - 11, top + 19, 22, 8);
-    g.fillStyle = '#3b3f47'; g.beginPath(); g.arc(x0 + 28, by - 13, 4, 0, 7); g.arc(x1 - 28, by - 13, 4, 0, 7); g.fill();
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, shade(face, 0.1)); gr.addColorStop(1, shade(face, -0.45));
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const ox = w * 0.335, ow = w * 0.33, oy = h * 0.55;
+    if (stripes) { for (let i = 0; i < 14; i++) { g.fillStyle = i % 2 ? '#f2c230' : '#1b1b1b'; g.fillRect(ox - 14 + (i * (ow + 28)) / 14, oy - 22, (ow + 28) / 14 + 1, 12); } }
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000';
+    g.beginPath(); g.moveTo(ox, h); g.lineTo(ox, oy + 20); g.quadraticCurveTo(ox, oy, ox + 24, oy); g.lineTo(ox + ow - 24, oy); g.quadraticCurveTo(ox + ow, oy, ox + ow, oy + 20); g.lineTo(ox + ow, h); g.closePath(); g.fill();
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = '#fff3c4'; g.fillRect(ox + ow * 0.2, oy - 5, ow * 0.6, 4);
+    e.fillStyle = '#ffe9a0'; e.fillRect(ox + ow * 0.2, oy - 6, ow * 0.6, 6);
   };
 }
-
-export const carSprite = (cls: number, color: number, frame: number) => `car_${cls}_${color}_${frame}`;
+const shadow: Draw = (g, _e, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, w / 2);
+  gr.addColorStop(0, 'rgba(0,0,0,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.save(); g.translate(0, h / 2); g.scale(1, h / w); g.translate(0, -h / 2); g.fillStyle = gr; g.beginPath(); g.arc(w / 2, h / 2, w / 2, 0, 7); g.fill(); g.restore();
+};
 
 export function buildAtlas(): Atlas {
   const mk = () => { const c = document.createElement('canvas'); c.width = AW; c.height = AH; return c; };
@@ -272,16 +273,20 @@ export function buildAtlas(): Atlas {
   add('snowrock', 128, 88, 1050, rock(true));
   add('puff', 64, 64, 600, puff);
   add('glow', 64, 64, 400, glow);
-  for (let c = 0; c < CAR_CLASSES.length; c++) for (let k = 0; k < CAR_COLORS.length; k++) for (let f = 0; f < 3; f++)
-    add(carSprite(c, k, f), 152, 96, 1130, car(c, CAR_COLORS[k], f));
+  add('cypress', 96, 320, 760, cypress);
+  add('oak', 256, 288, 2700, leafy(['#3b7a2f', '#8fbf5a'], 7));
+  add('gumtree', 256, 288, 2400, leafy(['#6f8748', '#b9c98a'], 9, undefined, '#cfc6b4'));
+  add('datepalm', 192, 320, 2000, palm);
+  add('villa', 256, 176, 2900, house('#ecc99b', '#c0623a', false));
+  add('cottage', 256, 176, 2400, house('#b9b3a6', '#4f4a45', false));
+  add('haybale', 96, 80, 700, haybale);
+  add('hedge', 256, 80, 2000, hedge);
+  add('ruin', 224, 224, 2300, ruin);
+  add('redrock', 128, 88, 1500, rock(false, '#c9683c', '#6b2c18'));
+  add('fence', 256, 56, 1800, fence);
+  add('gantry', 768, 240, 5800, gantry);
+  add('tunnel', 640, 280, 14000, tunnel('#3a3d44', false));
+  add('portal', 640, 280, 14000, tunnel('#7b756c', true));
+  add('shadow', 64, 20, 1000, shadow);
   return { base, emis, sprites };
-}
-
-/** Standalone preview canvas of a car for menus. */
-export function carPreview(cls: number, color: number): HTMLCanvasElement {
-  const c = document.createElement('canvas'); c.width = 152; c.height = 96;
-  const g = c.getContext('2d')!;
-  const dummy = document.createElement('canvas').getContext('2d')!;
-  car(cls, CAR_COLORS[color], 0)(g, dummy, 152, 96);
-  return c;
 }

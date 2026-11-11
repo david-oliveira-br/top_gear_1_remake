@@ -10,7 +10,7 @@ export interface Item {
 }
 export interface Screen {
   title: string; sub?: () => string; body?: () => string; items: Item[];
-  back?: () => void; focus?: number;
+  back?: () => void; focus?: number; wide?: boolean;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 export const h = esc;
@@ -74,7 +74,7 @@ export class Menu {
       else if (it.value) val = `<span class="val">${it.left ? '<b data-dir="l">‹</b>' : ''}<span>${esc(it.value())}</span>${it.right ? '<b data-dir="r">›</b>' : ''}</span>`;
       return `<li data-i="${i}" class="${i === s.focus ? 'focus' : ''}${!it.value && !it.text ? ' action' : ''}"><span class="label">${esc(label)}</span>${val}</li>`;
     }).join('');
-    this.el.innerHTML = `<div class="panel"><h1>${esc(s.title)}</h1>${s.sub ? `<p class="sub">${esc(s.sub())}</p>` : ''}${s.body ? `<div class="body">${s.body()}</div>` : ''}<ul>${lis}</ul><div class="hint">${this.hint}</div></div>`;
+    this.el.innerHTML = `<div class="panel${s.wide ? ' wide' : ''}"><h1>${esc(s.title)}</h1>${s.sub ? `<p class="sub">${esc(s.sub())}</p>` : ''}${s.body ? `<div class="body">${s.body()}</div>` : ''}<ul>${lis}</ul><div class="hint">${this.hint}</div></div>`;
     this.el.querySelector('li.focus')?.scrollIntoView({ block: 'nearest' });
   }
 }

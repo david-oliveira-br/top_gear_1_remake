@@ -19,7 +19,7 @@ let p = await open();
 await p.evaluate(() => localStorage.setItem('rc_setup', JSON.stringify({ track: 4, laps: 1, weather: 0, time: 0, grid: 12, difficulty: 1 })));
 await p.reload(); await p.waitForTimeout(1200);
 await p.click('text=Split-screen (2 players)'); await p.click('text=Start race');
-await p.waitForTimeout(16000);
+await p.waitForTimeout(26000);
 await p.screenshot({ path: out + '/10-split.png' });
 let s = await state(p);
 if (s.local.length !== 2 || s.local.some((i) => s.cars[i].speed < 3000)) fail('split-screen cars not moving ' + JSON.stringify(s.local.map((i) => s.cars[i])));
@@ -34,7 +34,7 @@ await p.evaluate(() => localStorage.setItem('rc_setup', JSON.stringify({ track: 
 await p.reload(); await p.waitForTimeout(1200);
 await p.click('text=Single race'); await p.click('text=Start race');
 await p.waitForTimeout(25000); await p.screenshot({ path: out + '/12-fog.png' });
-await p.waitForFunction(() => window.__rc.menu.top?.title === 'Results', null, { timeout: 120000 });
+await p.waitForFunction(() => window.__rc.menu.top?.title === 'Results', null, { timeout: 240000 });
 await p.screenshot({ path: out + '/13-results.png' });
 await p.close();
 
@@ -49,7 +49,7 @@ await c.waitForFunction(() => window.__rc.menu.top?.title === '1 vs 1 duel');
 await a.screenshot({ path: out + '/14-lobby.png' });
 await c.click('li:has-text("Ready")');
 await a.waitForSelector('text=READY'); await a.click('text=Start race');
-await a.waitForTimeout(20000);
+await a.waitForTimeout(30000);
 const [sa, sc] = await Promise.all([state(a), state(c)]);
 await a.screenshot({ path: out + '/15-online-a.png' }); await c.screenshot({ path: out + '/16-online-c.png' });
 console.log('online', JSON.stringify({ a: sa.cars, c: sc.cars, la: sa.local, lc: sc.local }));

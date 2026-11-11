@@ -1,5 +1,7 @@
 import { CAR_CLASSES, ROAD_W, SEG_LEN, wrapDiff, type World } from '../../../shared/src/index';
-import { buildAtlas, carSprite, type Atlas, type SpriteInfo } from '../art/atlas';
+import { buildAtlas, type Atlas, type SpriteInfo } from '../art/atlas';
+import type { Backdrop } from '../art/backdrops';
+import { CAR_FRAMES, buildCarSheet, carKey } from '../art/cars';
 import type { Look } from './look';
 import { BLUR_FS, BRIGHT_FS, POST_FS, QUAD_VS, ROAD_FS, ROAD_VS, SKY_FS, SPRITE_FS, SPRITE_VS } from './shaders';
 
@@ -8,7 +10,7 @@ export const PLAYER_Z = 1750;
 const MAX_SPRITES = 4000, SV = 10;
 
 export interface View { car: number; rect: [number, number, number, number] } // x,y,w,h in 0..1, y from top
-export interface RenderOpts { bloom: boolean; crt: boolean; scale: number }
+export interface RenderOpts { bloom: boolean; crt: boolean; scale: number; intro?: number }
 
 type Uni = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uni }
@@ -22,6 +24,9 @@ export class Renderer {
   private sprVao: WebGLVertexArrayObject; private sprBuf: WebGLBuffer; private sprData = new Float32Array(MAX_SPRITES * 4 * SV);
   private quadVao: WebGLVertexArrayObject;
   private texBase: WebGLTexture; private texEmis: WebGLTexture;
+  private texCar: WebGLTexture | null = null; private texCarEmis: WebGLTexture | null = null; private carSprites: Record<string, SpriteInfo> = {}; private carSig = '';
+  private texFar: WebGLTexture | null = null; private texNear: WebGLTexture | null = null; private texLights: WebGLTexture | null = null; private backdrop: Backdrop | null = null;
+  private intro = 1;
   private scene: Target | null = null; private depth: WebGLRenderbuffer | null = null;
   private b1: Target | null = null; private b2: Target | null = null;
   private segX = new Float32Array(DRAW + 1); private segDX = new Float32Array(DRAW + 1);
@@ -56,17 +61,34 @@ export class Renderer {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); gl.bindVertexArray(null);
 
     this.atlas = buildAtlas();
-    const tex = (c: HTMLCanvasElement) => {
-      const t = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, t);
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
-      gl.generateMipmap(gl.TEXTURE_2D);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      return t;
-    };
-    this.texBase = tex(this.atlas.base); this.texEmis = tex(this.atlas.emis);
+    this.texBase = this.tex(this.atlas.base); this.texEmis = this.tex(this.atlas.emis);
+  }
+
+  private tex(c: HTMLCanvasElement, repeat = false, old: WebGLTexture | null = null) {
+    const gl = this.gl;
+    if (old) gl.deleteTexture(old);
+    const t = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  /** Build the high-resolution sprite sheet for the cars on this grid. */
+  setCars(cars: { classId: number; color: number }[]) {
+    const sig = [...new Set(cars.map((c) => c.classId + ':' + c.color))].sort().join(',');
+    if (sig === this.carSig) return;
+    this.carSig = sig;
+    const sheet = buildCarSheet(cars);
+    this.carSprites = sheet.sprites;
+    this.texCar = this.tex(sheet.base, false, this.texCar); this.texCarEmis = this.tex(sheet.emis, false, this.texCarEmis);
+  }
+  setBackdrop(b: Backdrop) {
+    if (b === this.backdrop) return;
+    this.backdrop = b;
+    this.texFar = this.tex(b.far, true, this.texFar); this.texNear = this.tex(b.near, true, this.texNear); this.texLights = this.tex(b.lights, true, this.texLights);
   }
 
   private prog(vs: string, fs: string): Prog {
@@ -115,6 +137,7 @@ export class Renderer {
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     this.ensureTargets(W, H);
     const dt = Math.min(0.1, Math.max(0, time - this.lastT)); this.lastT = time;
+    this.intro = opts.intro ?? 1;
     if (look.storm && Math.random() < dt * 0.12) this.flash = 1;
     this.flash = Math.max(0, this.flash - dt * 3.5);
 
@@ -177,23 +200,29 @@ export class Renderer {
     const cls = CAR_CLASSES[me.classId];
     const sp = me.speed / cls.top;
     const mod = (v: number, m: number) => ((v % m) + m) % m;
-    const camZ = mod(me.rz - PLAYER_Z, L);
+    const ik = this.intro, back = PLAYER_Z + (1 - ik) * 15000;
+    const camZ = mod(me.rz - back, L);
     const base = Math.floor(camZ / SEG_LEN) % N, basePct = (camZ % SEG_LEN) / SEG_LEN;
     const pSeg = segs[Math.floor(mod(me.rz, L) / SEG_LEN) % N], pPct = (mod(me.rz, L) % SEG_LEN) / SEG_LEN;
     const shake = (me.offroad && me.speed > 800 ? 14 : 0) + me.bump * 90;
-    const camY = CAM_H + pSeg.y1 + (pSeg.y2 - pSeg.y1) * pPct + Math.sin(time * 71) * shake;
-    const camX = me.rx * ROAD_W * 0.9;
+    const camY = CAM_H + (1 - ik) * 5200 + pSeg.y1 + (pSeg.y2 - pSeg.y1) * pPct + Math.sin(time * 71) * shake;
+    const camX = me.rx * ROAD_W * 0.9 * ik;
     this.skyOff[vi] += pSeg.curve * sp * dt * 0.32;
-    this.blurAmt[vi] += ((Math.max(0, sp - 0.55) * 1.6 + (me.nitroT > 0 ? 1.4 : 0)) - this.blurAmt[vi]) * Math.min(1, dt * 5);
+    this.blurAmt[vi] += ((Math.max(0, sp - 0.55) * 1.6 + (me.nitroT > 0 ? 1.4 : 0) + me.draft * 0.9) - this.blurAmt[vi]) * Math.min(1, dt * 5);
 
     // sky
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
     const S = this.sky; gl.useProgram(S.p);
     gl.uniform4f(S.u.uRect, rect[0], rect[1], rect[2], rect[3]);
-    gl.uniform3fv(S.u.uTop, look.top); gl.uniform3fv(S.u.uHor, look.hor); gl.uniform3fv(S.u.uSunCol, look.sunCol); gl.uniform3fv(S.u.uGround, look.fog);
-    gl.uniform3fv(S.u.uSil1, look.sil1); gl.uniform3fv(S.u.uSil2, look.sil2); gl.uniform3fv(S.u.uCloudCol, look.cloudCol);
+    gl.uniform3fv(S.u.uTop, look.top); gl.uniform3fv(S.u.uHor, look.hor); gl.uniform3fv(S.u.uSunCol, look.sunCol);
+    gl.uniform3f(S.u.uGround, look.grassA[0] * look.amb[0] * 0.2 + look.fog[0] * 0.8, look.grassA[1] * look.amb[1] * 0.2 + look.fog[1] * 0.8, look.grassA[2] * look.amb[2] * 0.2 + look.fog[2] * 0.8);
+    gl.uniform3fv(S.u.uSkyAmb, look.skyAmb); gl.uniform3fv(S.u.uCloudCol, look.cloudCol);
+    gl.uniform4f(S.u.uPano, 2.25, 0.62, 2.9, 0.8); gl.uniform1f(S.u.uLightLayer, this.backdrop?.lightsOnNear ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texFar); gl.uniform1i(S.u.uFar, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texNear); gl.uniform1i(S.u.uNear, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.texLights); gl.uniform1i(S.u.uLightTex, 2);
     gl.uniform2f(S.u.uSun, look.sun[0], look.sun[1]); gl.uniform1f(S.u.uStars, look.stars); gl.uniform1f(S.u.uOff, this.skyOff[vi]);
-    gl.uniform1f(S.u.uHorizon, 0.5 + Y_OFF / 2); gl.uniform1f(S.u.uSil, look.sil); gl.uniform1f(S.u.uCloud, look.cloud);
+    gl.uniform1f(S.u.uHorizon, 0.5 + Y_OFF / 2); gl.uniform1f(S.u.uCloud, look.cloud);
     gl.uniform1f(S.u.uTime, time); gl.uniform1f(S.u.uAurora, look.aurora); gl.uniform1f(S.u.uLights, look.night); gl.uniform1f(S.u.uFlash, this.flash);
     gl.bindVertexArray(this.quadVao); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -230,7 +259,8 @@ export class Renderer {
       for (const spr of s.sprites) {
         const info = at[spr.kind]; if (!info) continue;
         const X = X0 + spr.offset * ROAD_W;
-        this.list.push({ z, fn: () => this.quad(info, X, Y, z, 1, false, 1, 1, 1, 1, 0) });
+        const sh = spr.solid && info.w < 3200 && look.night < 0.6 ? at.shadow : null;
+        this.list.push({ z, fn: () => { if (sh) this.quad(sh, X + info.w * 0.12, Y - 130, z + 2, info.w / 900, false, 0, 0, 0, 0.55, 0); this.quad(info, X, Y, z, 1, false, 1, 1, 1, 1, 0); } });
       }
     }
     for (const c of world.cars) {
@@ -241,16 +271,20 @@ export class Renderer {
       const jit = (c.offroad && c.speed > 800 ? Math.sin(time * 60 + c.idx) * 18 : 0) + Math.sin(time * 80) * c.bump * 60;
       const Y = s.y1 + (s.y2 - s.y1) * fr - camY + jit;
       const ang = c.steer * 1.25 + Math.max(-1.4, Math.min(1.4, (X / dz) * 2.4));
-      const frame = Math.min(2, Math.round(Math.abs(ang) * 1.6));
-      const info = at[carSprite(c.classId, c.color, frame)];
+      const frame = Math.min(CAR_FRAMES - 1, Math.round(Math.abs(ang) * 2.7));
+      const info = this.carSprites[carKey(c.classId, c.color, frame)];
+      if (!info) continue;
       const flip = ang < 0, brake = this.braking.get(c.idx) ?? 0, glow = at.glow, puff = at.puff;
       const cz = dz, t = time;
       this.list.push({
         z: cz, fn: () => {
-          this.quad(info, X, Y - 40, cz, 1, flip, 1, 1, 1, 1, 0);
+          this.quad(info, X, Y - 40, cz, 1, flip, 1, 1, 1, 1, 2);
+          if (c.draft > 0.25 && c.idx === me.idx) {
+            for (let k = 0; k < 6; k++) { const ph = (t * 2.2 + k * 0.17) % 1; this.quad(puff, X + (k % 2 ? 1 : -1) * (520 + k * 60), Y + 250 + Math.sin(k * 3) * 160, cz + 900 - ph * 1500, 0.35, false, 1, 1, 1, c.draft * 0.5 * (1 - Math.abs(ph - 0.5) * 2), 1); }
+          }
           if (brake > 0.05 || look.night > 0.3) {
-            const a = Math.max(brake * 0.8, look.night * 0.22);
-            for (const sx of [-300, 300]) this.quad(glow, X + sx, Y + 170, cz - 5, 1.1, false, 1, 0.12, 0.08, a, 1);
+            const a = Math.max(brake * 0.6, look.night * 0.2);
+            for (const sx of [-300, 300]) this.quad(glow, X + sx, Y + 175, cz - 5, 0.75, false, 1, 0.12, 0.08, a, 1);
           }
           if (c.nitroT > 0) {
             const fl = 0.75 + 0.25 * Math.sin(t * 90 + c.idx);
@@ -275,6 +309,8 @@ export class Renderer {
     gl.uniform1f(Sp.u.uNight, look.night);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texBase); gl.uniform1i(Sp.u.uTex, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texEmis); gl.uniform1i(Sp.u.uEmis, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.texCar); gl.uniform1i(Sp.u.uCar, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.texCarEmis); gl.uniform1i(Sp.u.uCarEmis, 3);
     gl.bindVertexArray(this.sprVao); gl.bindBuffer(gl.ARRAY_BUFFER, this.sprBuf);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.sprData, 0, this.nSpr * 4 * SV);
     gl.drawElements(gl.TRIANGLES, this.nSpr * 6, gl.UNSIGNED_SHORT, 0);
@@ -287,7 +323,7 @@ export class Renderer {
     const d = this.sprData; let o = this.nSpr++ * 4 * SV;
     const hw = (s.w * scale) / 2, h = s.h * scale;
     const u0 = flip ? s.u1 : s.u0, u1 = flip ? s.u0 : s.u1;
-    const yb = mode ? Y - h / 2 : Y, yt = yb + h;
+    const yb = mode === 1 ? Y - h / 2 : Y, yt = yb + h;
     const put = (x: number, y: number, u: number, v: number) => { d[o++] = x; d[o++] = y; d[o++] = Z; d[o++] = u; d[o++] = v; d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a; d[o++] = mode; };
     put(X - hw, yb, u0, s.v1); put(X + hw, yb, u1, s.v1); put(X - hw, yt, u0, s.v0); put(X + hw, yt, u1, s.v0);
   }

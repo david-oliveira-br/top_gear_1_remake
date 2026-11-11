@@ -1,15 +1,17 @@
-import { PIT_X0, PIT_X1, SEG_LEN, type TimeOfDay, type Track, type Weather } from './track';
+import { PIT_X0, PIT_X1, SEG_LEN, type Shift, type TimeOfDay, type Track, type Weather } from './track';
 import { clamp, wrapDiff } from './util';
 
 export const DT = 1 / 60;
 export const KMH = 1 / 40; // world units/s -> displayed km/h
 export const MAX_CARS = 12;
-export const COUNTDOWN_TICKS = 240;
+export const INTRO_TICKS = 180; // camera sweep over the grid before the lights
+export const COUNTDOWN_TICKS = INTRO_TICKS + 240;
 export const NITRO_TIME = 3.5;
 export const NITRO_START = 3;
 export const PIT_SPEED = 3600;
-export const CAR_LEN = 760;
-export const CAR_W = 0.42;
+export const CAR_LEN = 560;
+export const CAR_W = 0.3;
+export const LAUNCH_LO = 0.6, LAUNCH_HI = 0.8;
 const NITRO_ACC = 2600;
 const GEAR_RATIO = [0.28, 0.46, 0.64, 0.82, 1.0];
 const GEAR_ACC = [1.9, 1.45, 1.1, 0.8, 0.56];
@@ -36,6 +38,7 @@ export interface Car {
   pNitro: boolean; pUp: boolean; pDown: boolean;
   finished: boolean; dnf: boolean; finishTick: number; stallT: number;
   bump: number; offroad: boolean; inPit: boolean; lane: number;
+  draft: number; bogT: number; launchT: number; // slipstream 0..1, wheelspin timer, 'perfect start' banner timer
   rx: number; rz: number; // render-only (interpolated) position
 }
 
@@ -44,10 +47,11 @@ export interface Entry { name: string; classId: number; color: number; auto: boo
 export interface World {
   track: Track; laps: number; weather: Weather; time: TimeOfDay; difficulty: Difficulty;
   cars: Car[]; tick: number; phase: 'countdown' | 'racing' | 'done'; firstFinishTick: number;
+  shift: Shift; wet: number; raceTicks: number;
 }
 
 /** entries are ordered by grid slot: entries[0] is pole. */
-export function createWorld(o: { track: Track; laps: number; weather: Weather; time: TimeOfDay; difficulty: Difficulty; entries: Entry[] }): World {
+export function createWorld(o: { track: Track; laps: number; weather: Weather; time: TimeOfDay; difficulty: Difficulty; entries: Entry[]; shift?: Shift }): World {
   const n = o.entries.length;
   const rows = Math.ceil(n / 2);
   const base = [0.86, 0.91, 0.955][o.difficulty];
@@ -61,14 +65,31 @@ export function createWorld(o: { track: Track; laps: number; weather: Weather; t
       skill: base + 0.045 * (1 - s / Math.max(1, n - 1)),
       x, z, lap: 0, speed: 0, gear: 1, rpm: 0, fuel: 1, nitro: NITRO_START, nitroT: 0, steer: 0,
       pNitro: false, pUp: false, pDown: false, finished: false, dnf: false, finishTick: 0, stallT: 0,
-      bump: 0, offroad: false, inPit: false, lane: x, rx: x, rz: z,
+      bump: 0, offroad: false, inPit: false, lane: x, draft: 0, bogT: 0, launchT: 0, rx: x, rz: z,
     };
   });
-  return { track: o.track, laps: o.laps, weather: o.weather, time: o.time, difficulty: o.difficulty, cars, tick: 0, phase: 'countdown', firstFinishTick: 0 };
+  const w: World = {
+    track: o.track, laps: o.laps, weather: o.weather, time: o.time, difficulty: o.difficulty, cars, tick: 0, phase: 'countdown', firstFinishTick: 0,
+    shift: o.shift ?? 'none', wet: 0, raceTicks: Math.round(((o.laps * o.track.length) / 10500) * 60),
+  };
+  w.wet = wetness(w);
+  return w;
 }
 
-export function gripFactors(weather: Weather) {
-  const wet = weather === 'rain' ? 1 : weather === 'snow' ? 1.3 : 0;
+const smooth = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+/** How far the sky has changed during this race: night 0..1 (dusk -> night), rain 0..1. Driven only by the tick, so every client agrees. */
+export function skyAt(w: World): { night: number; rain: number } {
+  const p = clamp((w.tick - COUNTDOWN_TICKS) / Math.max(1, w.raceTicks), 0, 1);
+  const baseRain = w.weather === 'rain' ? 1 : 0;
+  if (w.shift === 'nightfall') return { night: smooth(0.12, 0.7, p), rain: baseRain };
+  if (w.shift === 'storm') return { night: 0, rain: smooth(0.22, 0.5, p) };
+  if (w.shift === 'clearing') return { night: 0, rain: 1 - smooth(0.3, 0.62, p) };
+  return { night: 0, rain: baseRain };
+}
+/** Road slipperiness: 0 dry, 1 rain, 1.3 snow. */
+export function wetness(w: World) { return w.weather === 'snow' ? 1.3 : skyAt(w).rain; }
+
+export function gripFactors(wet: number) {
   return { grip: 1 - 0.13 * wet, cent: 1 + 0.28 * wet };
 }
 
@@ -78,11 +99,11 @@ function torque(rpm: number) {
 }
 
 /** Advance one car by one tick. Car-vs-car contact is handled separately. */
-export function stepCar(c: Car, inp: Input, track: Track, weather: Weather) {
+export function stepCar(c: Car, inp: Input, track: Track, wet: number) {
   const cls = CAR_CLASSES[c.classId];
   const n = track.segments.length;
   const seg = track.segments[Math.floor(c.z / SEG_LEN) % n];
-  const g = gripFactors(weather);
+  const g = gripFactors(wet);
   let throttle = clamp(inp.throttle, 0, 1);
   const brake = clamp(inp.brake, 0, 1);
   if (c.fuel <= 0) throttle = 0;
@@ -98,9 +119,11 @@ export function stepCar(c: Car, inp: Input, track: Track, weather: Weather) {
   if (inp.nitro && !c.pNitro && c.nitro > 0 && c.nitroT <= 0 && c.fuel > 0) { c.nitro--; c.nitroT = NITRO_TIME; }
   c.pNitro = inp.nitro; c.pUp = inp.up; c.pDown = inp.down;
 
-  const gearTop = cls.top * GEAR_RATIO[c.gear - 1];
+  const gearTop = cls.top * GEAR_RATIO[c.gear - 1] * (1 + 0.055 * c.draft);
   c.rpm = c.speed / gearTop;
-  let acc = cls.accel * GEAR_ACC[c.gear - 1] * torque(c.rpm) * throttle;
+  let acc = cls.accel * GEAR_ACC[c.gear - 1] * torque(c.rpm) * throttle + 420 * c.draft * throttle;
+  if (c.bogT > 0) { c.bogT = Math.max(0, c.bogT - DT); acc *= 0.4; }
+  if (c.launchT > 0) c.launchT = Math.max(0, c.launchT - DT);
   if (c.nitroT > 0) {
     c.nitroT = Math.max(0, c.nitroT - DT);
     acc = c.speed < cls.top * 1.22 ? acc + NITRO_ACC : 0;
@@ -143,25 +166,29 @@ export function stepCar(c: Car, inp: Input, track: Track, weather: Weather) {
   if (c.z >= track.length) { c.z -= track.length; c.lap++; }
 }
 
-/** Resolve contact between two cars (mutates both). Returns true on contact. */
-export function collidePair(a: Car, b: Car, len: number) {
-  const dz = wrapDiff(b.z - a.z, len);
-  if (Math.abs(dz) >= CAR_LEN || Math.abs(b.x - a.x) >= CAR_W) return false;
+/**
+ * Resolve contact between two cars (mutates both). Cars alongside each other only get nudged apart;
+ * speed is exchanged only when one runs into the back of the other. Returns 0 none, 1 side touch, 2 rear hit.
+ */
+export function collidePair(a: Car, b: Car, len: number): number {
+  const dz = wrapDiff(b.z - a.z, len), dx = b.x - a.x;
+  if (Math.abs(dz) >= CAR_LEN || Math.abs(dx) >= CAR_W) return 0;
+  const dir = dx > 0 || (dx === 0 && a.idx < b.idx) ? 1 : -1;
+  const push = Math.min(0.02, (CAR_W - Math.abs(dx)) * 0.5);
+  a.x -= dir * push; b.x += dir * push;
+  if (Math.abs(dz) < CAR_LEN * 0.6 || Math.abs(dx) > CAR_W * 0.8) return 1;
   const rear = dz > 0 ? a : b, front = dz > 0 ? b : a;
-  if (rear.speed > front.speed) {
-    const diff = rear.speed - front.speed;
-    rear.speed = front.speed * 0.9;
-    front.speed += diff * 0.25;
-    rear.bump = 0.25; front.bump = Math.max(front.bump, 0.12);
-  }
-  const push = a.x < b.x || (a.x === b.x && a.idx < b.idx) ? -0.012 : 0.012;
-  a.x += push; b.x -= push;
-  return true;
+  const closing = rear.speed - front.speed;
+  if (closing <= 0) return 1;
+  rear.speed = front.speed - Math.min(250, closing * 0.2);
+  front.speed += closing * 0.3;
+  if (closing > 200) { rear.bump = Math.min(0.3, closing / 4000); front.bump = Math.max(front.bump, rear.bump * 0.5); }
+  return 2;
 }
 
 /** Steering that exactly cancels the curve push, and the speed fraction above which it is impossible. */
-function curveNeeds(c: Car, curve: number, weather: Weather) {
-  const cls = CAR_CLASSES[c.classId], g = gripFactors(weather);
+function curveNeeds(c: Car, curve: number, wet: number) {
+  const cls = CAR_CLASSES[c.classId], g = gripFactors(wet);
   const sp = c.speed / cls.top;
   const steer = (sp * sp * curve * CENT_K * g.cent) / (Math.max(0.05, Math.min(1, sp * 2.2)) * cls.grip * g.grip);
   const limit = Math.abs(curve) < 0.01 ? 9 : Math.sqrt((0.92 * cls.grip * g.grip) / (Math.abs(curve) * CENT_K * g.cent));
@@ -174,7 +201,7 @@ function decideLane(w: World, c: Car) {
   for (const o of w.cars) {
     if (o === c) continue;
     const dz = wrapDiff(o.z - c.z, len);
-    if (dz > 0 && dz < 2600 && Math.abs(o.x - c.x) < 0.5 && o.speed < c.speed + 150) { blocked = true; break; }
+    if (dz > 0 && dz < 3400 && Math.abs(o.x - c.x) < 0.42 && o.speed < c.speed + 150) { blocked = true; break; }
   }
   if (!blocked) return;
   const lanes = [-0.62, 0, 0.62].sort((p, q) => Math.abs(p - c.x) - Math.abs(q - c.x));
@@ -184,7 +211,7 @@ function decideLane(w: World, c: Car) {
     for (const o of w.cars) {
       if (o === c) continue;
       const dz = wrapDiff(o.z - c.z, len);
-      if (dz > -900 && dz < 2800 && Math.abs(o.x - l) < 0.45) { free = false; break; }
+      if (dz > -1300 && dz < 3000 && Math.abs(o.x - l) < 0.45) { free = false; break; }
     }
     if (free) { c.lane = l; return; }
   }
@@ -212,9 +239,19 @@ export function aiInput(w: World, i: number, cruise = false): Input {
 
   const look = t.segments[(si + Math.floor(8 + sp * 16)) % n].curve;
   const cv = Math.abs(look) > Math.abs(seg.curve) ? look : seg.curve;
-  const need = curveNeeds(c, seg.curve, w.weather);
-  const steer = clamp((target - c.x) * 3.5 + need.steer, -1, 1);
-  let targetSp = Math.min(c.skill, curveNeeds(c, cv, w.weather).limit * (0.93 + c.skill * 0.06));
+  const need = curveNeeds(c, seg.curve, w.wet);
+  // traffic: keep clear of a car alongside, and lift instead of running into the car ahead
+  let avoid = 0, gap = 1e9, aheadSpeed = 0;
+  for (const o of w.cars) {
+    if (o === c || o.dnf) continue;
+    const dz = wrapDiff(o.z - c.z, t.length), dx = o.x - c.x;
+    if (Math.abs(dz) < 800 && Math.abs(dx) < 0.46) avoid -= Math.sign(dx || (o.idx > c.idx ? 1 : -1)) * (0.46 - Math.abs(dx)) * 3;
+    if (dz > 0 && dz < gap && Math.abs(dx) < 0.34) { gap = dz; aheadSpeed = o.speed; }
+  }
+  const steer = clamp((target - c.x) * 3.5 + need.steer + avoid, -1, 1);
+  let targetSp = Math.min(c.skill, curveNeeds(c, cv, w.wet).limit * (0.93 + c.skill * 0.06));
+  const closing = c.speed - aheadSpeed;
+  if (gap < 700 + closing * 0.9 && closing > 0) targetSp = Math.min(targetSp, (aheadSpeed / cls.top) * (gap < 750 ? 0.97 : 1));
   if (cruise) targetSp = Math.min(targetSp, 0.45);
   let throttle = sp < targetSp ? 1 : 0;
   let brake = sp > targetSp + 0.07 ? 0.7 : 0;
@@ -228,18 +265,25 @@ export function stepWorld(w: World, inputs: (Input | undefined)[]) {
   w.tick++;
   if (w.phase === 'countdown') {
     for (const c of w.cars) {
-      const thr = c.isAI ? 0.5 + 0.4 * Math.sin(w.tick * 0.2 + c.idx) : inputs[c.idx]?.throttle ?? 0;
-      c.rpm += (thr * 0.85 - c.rpm) * 0.15;
+      const thr = c.isAI ? (c.rpm < 0.66 + 0.03 * Math.sin(c.idx * 2.3) + (c.idx % 5 === 0 ? 0.14 : 0) ? 1 : 0) : inputs[c.idx]?.throttle ?? 0;
+      c.rpm += (thr * 0.98 - c.rpm) * 0.05;
     }
-    if (w.tick >= COUNTDOWN_TICKS) w.phase = 'racing';
+    if (w.tick >= COUNTDOWN_TICKS) {
+      w.phase = 'racing';
+      for (const c of w.cars) {
+        if (c.rpm >= LAUNCH_LO && c.rpm <= LAUNCH_HI) { c.speed = CAR_CLASSES[c.classId].top * 0.11; c.launchT = 1.6; }
+        else if (c.rpm > LAUNCH_HI) c.bogT = 0.9;
+      }
+    }
     return;
   }
   if (w.phase === 'done') return;
   const len = w.track.length;
+  w.wet = wetness(w);
   for (const c of w.cars) {
     if (c.dnf) { c.speed = 0; continue; }
     const inp = c.finished ? aiInput(w, c.idx, true) : c.isAI ? aiInput(w, c.idx) : inputs[c.idx] ?? NO_INPUT;
-    stepCar(c, inp, w.track, w.weather);
+    stepCar(c, inp, w.track, w.wet);
     if (!c.finished && c.lap > w.laps) {
       c.finished = true; c.finishTick = w.tick;
       if (c.human && !w.firstFinishTick) w.firstFinishTick = w.tick;
@@ -253,9 +297,23 @@ export function stepWorld(w: World, inputs: (Input | undefined)[]) {
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     if (!cs[i].dnf && !cs[j].dnf) collidePair(cs[i], cs[j], len);
   }
+  for (const c of cs) updateDraft(c, w);
   const humans = cs.filter((c) => c.human);
   if (humans.length === 0 ? cs.every((c) => c.finished) : humans.every((c) => c.finished) ||
     (w.firstFinishTick > 0 && w.tick - w.firstFinishTick > 45 * 60)) w.phase = 'done';
+}
+
+/** Slipstream builds while tucked in behind another car at speed. */
+export function updateDraft(c: Car, w: World) {
+  let tow = false;
+  if (c.speed > CAR_CLASSES[c.classId].top * 0.55) {
+    for (const o of w.cars) {
+      if (o === c || o.dnf) continue;
+      const dz = wrapDiff(o.z - c.z, w.track.length);
+      if (dz > 350 && dz < 3600 && Math.abs(o.x - c.x) < 0.3 && o.speed > c.speed * 0.6) { tow = true; break; }
+    }
+  }
+  c.draft = clamp(c.draft + (tow ? DT * 0.9 : -DT * 1.6), 0, 1);
 }
 
 export const progress = (c: Car, len: number) => c.lap * len + c.z;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CAR_CLASSES, COUNTDOWN_TICKS, aiInput, TRACK_DEFS, createWorld, decodeInput, decodeSnapshot, encodeInput, encodeSnapshot, getTrack,
+  CAR_CLASSES, CAR_LEN, COUNTDOWN_TICKS, aiInput, collidePair, skyAt, TRACK_DEFS, createWorld, decodeInput, decodeSnapshot, encodeInput, encodeSnapshot, getTrack,
   quantizeInput, standings, stepWorld, type Entry, type Input, type World,
 } from '../src/index';
 
@@ -8,7 +8,7 @@ const entries = (n: number, humans = 0): Entry[] =>
   Array.from({ length: n }, (_, i) => ({ name: 'c' + i, classId: i % 4, color: i, auto: true, isAI: i < n - humans }));
 const mk = (id: string, n = 12, laps = 2, humans = 0): World => {
   const track = getTrack(id);
-  return createWorld({ track, laps, weather: track.weather, time: track.time, difficulty: 1, entries: entries(n, humans) });
+  return createWorld({ track, laps, weather: track.weather, time: track.time, difficulty: 1, entries: entries(n, humans), shift: track.shift });
 };
 const run = (w: World, maxTicks: number, inp?: (w: World) => (Input | undefined)[]) => {
   while (w.phase !== 'done' && w.tick < maxTicks) stepWorld(w, inp ? inp(w) : []);
@@ -41,7 +41,67 @@ describe('simulation', () => {
       expect(best, d.id + ' lap time').toBeGreaterThan(30);
       expect(best, d.id + ' lap time').toBeLessThan(110);
     }
-  }, 120000);
+    expect(TRACK_DEFS.length).toBe(32);
+  }, 240000);
+
+  it('side-by-side contact costs no speed; running into the back of a car does', () => {
+    const w = mk('mojave', 2, 1);
+    const [a, b] = w.cars;
+    a.z = 5000; b.z = 5100; a.x = 0; b.x = 0.25; a.speed = 9000; b.speed = 8000;
+    expect(collidePair(a, b, w.track.length)).toBe(1);
+    expect(a.speed).toBe(9000); expect(b.speed).toBe(8000);
+    expect(b.x - a.x).toBeGreaterThan(0.25);
+    a.z = 5000; b.z = 5000 + CAR_LEN - 60; a.x = 0; b.x = 0.05; a.speed = 9000; b.speed = 8000;
+    expect(collidePair(a, b, w.track.length)).toBe(2);
+    expect(a.speed).toBeLessThan(8000); expect(b.speed).toBeGreaterThan(8000);
+    a.x = 0; b.x = 0.4;
+    expect(collidePair(a, b, w.track.length)).toBe(0);
+  });
+
+  it('AI traffic rarely makes contact in a full-grid race', () => {
+    const w = mk('costa', 12, 2);
+    let hits = 0; const was = new Set<number>();
+    while (w.phase !== 'done' && w.tick < 60 * 60 * 6) {
+      stepWorld(w, []);
+      for (const c of w.cars) { if (c.bump > 0.05 && !was.has(c.idx)) { hits++; was.add(c.idx); } if (c.bump === 0) was.delete(c.idx); }
+    }
+    expect(w.phase).toBe('done');
+    expect(hits).toBeLessThan(12); // fewer than one bump per car over two laps
+  });
+
+  it('slipstream builds behind a car and fades in clean air', () => {
+    const w = mk('mojave', 2, 1);
+    w.tick = COUNTDOWN_TICKS; w.phase = 'racing';
+    const [lead, tail] = w.cars;
+    lead.z = 20000; tail.z = 18500; lead.x = tail.x = 0; lead.speed = tail.speed = 11000; lead.gear = tail.gear = 5;
+    for (let i = 0; i < 90; i++) { stepWorld(w, []); tail.z = lead.z - 1500; tail.x = lead.x; }
+    expect(tail.draft).toBeGreaterThan(0.9); expect(lead.draft).toBe(0);
+    for (let i = 0; i < 90; i++) { stepWorld(w, []); tail.x = lead.x + 1; }
+    expect(tail.draft).toBe(0);
+  });
+
+  it('holding the revs in the band gives a launch boost; over-revving bogs down', () => {
+    const run2 = (thr: (rpm: number) => number) => {
+      const w = mk('mojave', 1, 1, 1); const c = w.cars[0];
+      while (w.phase === 'countdown') stepWorld(w, [{ steer: 0, throttle: thr(c.rpm), brake: 0, nitro: false, up: false, down: false }]);
+      return c;
+    };
+    const good = run2((rpm) => (rpm < 0.7 ? 1 : 0)), flat = run2(() => 1), idle = run2(() => 0);
+    expect(good.launchT).toBeGreaterThan(0); expect(good.speed).toBeGreaterThan(1000);
+    expect(flat.bogT).toBeGreaterThan(0); expect(flat.speed).toBe(0);
+    expect(idle.speed).toBe(0); expect(idle.bogT).toBe(0);
+  });
+
+  it('a nightfall race gets dark and a storm race gets wet as it goes on', () => {
+    const track = getTrack('canyon');
+    const w = createWorld({ track, laps: 2, weather: 'clear', time: 'dusk', difficulty: 1, entries: entries(2), shift: 'nightfall' });
+    expect(skyAt(w).night).toBe(0);
+    w.tick = COUNTDOWN_TICKS + w.raceTicks; expect(skyAt(w).night).toBe(1);
+    const s = createWorld({ track, laps: 2, weather: 'clear', time: 'day', difficulty: 1, entries: entries(2), shift: 'storm' });
+    expect(s.wet).toBe(0);
+    s.tick = COUNTDOWN_TICKS + Math.round(s.raceTicks * 0.8); s.phase = 'racing'; stepWorld(s, []);
+    expect(s.wet).toBe(1);
+  });
 
   it('counts laps and ranks finishers by finish time', () => {
     const w = mk('mojave', 6, 1);

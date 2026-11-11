@@ -1,56 +1,6 @@
 // All sound is synthesised with Web Audio: a small step sequencer for music, an engine synth and one-shot effects.
 
-interface Song {
-  bpm: number; root: number; scale: number[]; prog: number[];
-  kick: string; snare: string; hat: string; bass: (number | null)[]; arp: number[]; lead: string[][]; leadWave: OscillatorType; swing?: number;
-}
-const MINOR = [0, 2, 3, 5, 7, 8, 10], DORIAN = [0, 2, 3, 5, 7, 9, 10], MAJOR = [0, 2, 4, 5, 7, 9, 11];
-const _ = null;
-
-// Lead phrases: one string per bar, tokens "degree:length" in 16th notes ("-" = rest). Degrees index the scale (7 = octave).
-export const SONGS: Record<string, Song> = {
-  menu: {
-    bpm: 104, root: 50, scale: DORIAN, prog: [0, 3, 5, 4], leadWave: 'triangle',
-    kick: 'x.......x.....x.', snare: '....x.......x...', hat: '..x...x...x...x.',
-    bass: [0, _, _, 0, _, _, 0, _, _, _, 0, _, 7, _, _, _], arp: [0, 1, 2, 3, 2, 1, 2, 3, 0, 1, 2, 3, 4, 3, 2, 1],
-    lead: [['4:6 2:2 4:4 7:4', '5:6 3:2 5:4 8:4', '7:4 5:4 4:4 2:4', '4:8 -:4 2:2 4:2'],
-      ['7:6 8:2 9:4 7:4', '8:6 7:2 5:8', '9:4 8:4 7:4 5:4', '6:12 -:4']],
-  },
-  ignition: {
-    bpm: 150, root: 45, scale: MINOR, prog: [0, 5, 3, 4], leadWave: 'sawtooth',
-    kick: 'x...x...x...x...', snare: '....x.......x..x', hat: 'x.xxx.xxx.xxx.xx',
-    bass: [0, _, 0, 0, _, 0, 12, _, 0, _, 0, 0, _, 0, 12, 7], arp: [0, 2, 4, 2, 0, 2, 4, 2, 0, 2, 4, 2, 5, 4, 2, 4],
-    lead: [['4:3 4:1 7:2 4:2 2:4 -:2 2:1 4:1', '5:3 5:1 7:2 5:2 3:4 -:4', '3:3 3:1 5:2 3:2 1:4 -:2 1:1 3:1', '4:4 6:4 8:6 -:2'],
-      ['7:2 8:2 9:4 8:2 7:2 4:4', '7:2 8:2 9:4 8:2 7:2 5:4', '8:2 7:2 5:4 3:2 5:2 7:4', '6:6 4:2 6:4 8:4']],
-  },
-  overdrive: {
-    bpm: 164, root: 40, scale: MINOR, prog: [0, 0, 5, 6], leadWave: 'square',
-    kick: 'x..x..x.x..x..x.', snare: '....x.......x...', hat: 'xxxxxxxxxxxxxxxx',
-    bass: [0, 0, 12, 0, 0, 12, 0, 0, 12, 0, 0, 12, 0, 12, 0, 12], arp: [0, 4, 2, 4, 0, 4, 2, 4, 0, 4, 2, 4, 0, 4, 2, 5],
-    lead: [['7:2 -:1 7:1 9:2 7:2 11:4 9:4', '7:2 -:1 7:1 9:2 7:2 6:4 4:4', '5:2 -:1 5:1 7:2 5:2 9:4 7:4', '6:2 8:2 10:2 8:2 6:4 8:4'],
-      ['11:4 9:2 7:2 9:4 7:4', '4:2 6:2 7:4 9:4 7:4', '9:4 7:2 5:2 7:4 5:4', '8:6 6:2 8:2 10:2 13:4']],
-  },
-  horizon: {
-    bpm: 138, root: 48, scale: MAJOR, prog: [0, 4, 5, 3], leadWave: 'sawtooth',
-    kick: 'x...x...x...x...', snare: '....x.......x...', hat: '..x...x...x...xx',
-    bass: [0, _, 0, _, 0, _, 0, 7, 0, _, 0, _, 0, _, 7, 12], arp: [0, 2, 4, 7, 4, 2, 4, 7, 0, 2, 4, 7, 4, 2, 4, 7],
-    lead: [['4:4 2:2 4:2 7:6 -:2', '4:4 1:2 4:2 6:6 -:2', '5:4 3:2 5:2 7:4 9:4', '8:4 7:4 5:4 3:4'],
-      ['9:6 7:2 9:4 11:4', '8:6 6:2 8:4 11:4', '9:4 7:4 5:2 7:2 9:4', '10:8 8:4 7:4']],
-  },
-  midnight: {
-    bpm: 126, root: 43, scale: DORIAN, prog: [0, 6, 3, 4], leadWave: 'square', swing: 0.12,
-    kick: 'x.....x.x.......', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.x.',
-    bass: [0, _, _, 0, _, 7, _, 0, _, 0, _, _, 10, _, 12, _], arp: [2, 4, 6, 4, 2, 4, 6, 4, 2, 4, 6, 4, 2, 4, 6, 8],
-    lead: [['-:4 4:2 6:2 7:4 6:2 4:2', '-:4 3:2 5:2 6:4 5:2 3:2', '-:4 5:2 7:2 9:4 7:2 5:2', '6:6 4:2 6:8'],
-      ['9:3 9:3 7:2 9:4 11:4', '8:3 8:3 6:2 8:4 10:4', '9:3 9:3 7:2 5:4 7:4', '8:4 6:4 4:8']],
-  },
-  results: {
-    bpm: 92, root: 52, scale: MAJOR, prog: [0, 5, 3, 4], leadWave: 'triangle',
-    kick: 'x.......x.......', snare: '....x.......x...', hat: '..x...x...x...x.',
-    bass: [0, _, _, _, 7, _, _, _, 0, _, _, _, 7, _, 12, _], arp: [0, 2, 4, 7, 4, 2, 0, 2, 4, 7, 4, 2, 0, 2, 4, 7],
-    lead: [['4:8 7:8', '5:8 9:8', '7:4 5:4 3:8', '4:12 -:4'], ['9:8 7:8', '9:8 5:8', '7:4 9:4 10:8', '8:12 -:4']],
-  },
-};
+import { SONGS, type Song } from './songs';
 
 function parseBar(s: string): { step: number; deg: number; len: number }[] {
   const out: { step: number; deg: number; len: number }[] = [];
@@ -69,6 +19,7 @@ export class GameAudio {
   private master!: GainNode; private musicBus!: GainNode; private sfxBus!: GainNode; private delay!: DelayNode; private noiseBuf!: AudioBuffer;
   private song: Song | null = null; private songName = ''; private step = 0; private nextTime = 0; private timer = 0;
   private parsed: ReturnType<typeof parseBar>[][] = [];
+  private pulse!: PeriodicWave; private lastLead = 0;
   private engines: { o1: OscillatorNode; o2: OscillatorNode; o3: OscillatorNode; f: BiquadFilterNode; g: GainNode; skid: GainNode; whoosh: GainNode }[] = [];
 
   constructor() {
@@ -92,6 +43,9 @@ export class GameAudio {
     this.delay = ctx.createDelay(1); this.delay.delayTime.value = 0.28;
     const fb = ctx.createGain(); fb.gain.value = 0.32; this.delay.connect(fb); fb.connect(this.delay);
     const wet = ctx.createGain(); wet.gain.value = 0.35; this.delay.connect(wet); wet.connect(this.musicBus);
+    const re = new Float32Array(32), im = new Float32Array(32);
+    for (let n = 1; n < 32; n++) im[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * 0.27); // 27% duty pulse
+    this.pulse = ctx.createPeriodicWave(re, im);
     this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     if (this.songName) { const n = this.songName; this.songName = ''; this.play(n); }
@@ -104,16 +58,26 @@ export class GameAudio {
     const s = SONGS[name]; this.song = s ?? null;
     if (!s || !this.ctx) return;
     this.parsed = s.lead.map((ph) => ph.map(parseBar));
-    this.step = 0; this.nextTime = this.ctx.currentTime + 0.1;
+    this.step = 0; this.lastLead = 0; this.nextTime = this.ctx.currentTime + 0.1;
     this.delay.delayTime.value = (60 / s.bpm) * 0.75;
   }
   stopMusic() { this.songName = ''; this.song = null; }
+  get current() { return this.songName; }
 
-  private note(freq: number, t: number, dur: number, type: OscillatorType, vol: number, cutoff: number, send = 0, detune = 0) {
+  private note(freq: number, t: number, dur: number, type: OscillatorType | 'pulse', vol: number, cutoff: number, send = 0, detune = 0, o2: { from?: number; vib?: boolean; q?: number; decay?: number } = {}) {
     const ctx = this.ctx!;
-    const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = detune;
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(cutoff, t); f.frequency.exponentialRampToValueAtTime(Math.max(200, cutoff * 0.35), t + dur);
-    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.008); g.gain.setValueAtTime(vol, t + dur * 0.6); g.gain.linearRampToValueAtTime(0, t + dur);
+    const o = ctx.createOscillator();
+    if (type === 'pulse') o.setPeriodicWave(this.pulse); else o.type = type;
+    o.detune.value = detune;
+    if (o2.from) { o.frequency.setValueAtTime(o2.from, t); o.frequency.exponentialRampToValueAtTime(freq, t + 0.035); } else o.frequency.value = freq;
+    if (o2.vib && dur > 0.22) {
+      const l = ctx.createOscillator(), lg = ctx.createGain(); l.frequency.value = 5.6;
+      lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(14, t + Math.min(dur, 0.3));
+      l.connect(lg); lg.connect(o.detune); l.start(t); l.stop(t + dur + 0.02);
+    }
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = o2.q ?? 1;
+    f.frequency.setValueAtTime(cutoff, t); f.frequency.exponentialRampToValueAtTime(Math.max(180, cutoff * 0.35), t + (o2.decay ?? dur));
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.006); g.gain.setValueAtTime(vol, t + dur * 0.6); g.gain.linearRampToValueAtTime(0, t + dur);
     o.connect(f); f.connect(g); g.connect(this.musicBus);
     if (send) { const s = ctx.createGain(); s.gain.value = send; g.connect(s); s.connect(this.delay); }
     o.start(t); o.stop(t + dur + 0.02);
@@ -125,11 +89,11 @@ export class GameAudio {
     const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     s.connect(f); f.connect(g); g.connect(bus); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
   }
-  private kick(t: number) {
+  private drum(t: number, f0: number, f1: number, dur: number, vol: number) {
     const ctx = this.ctx!; const o = ctx.createOscillator(); const g = ctx.createGain();
-    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
-    g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-    o.connect(g); g.connect(this.musicBus); o.start(t); o.stop(t + 0.25);
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.musicBus); o.start(t); o.stop(t + dur + 0.03);
   }
 
   private schedule() {
@@ -142,23 +106,37 @@ export class GameAudio {
     while (this.nextTime < ctx.currentTime + 0.15) {
       const st = this.step % 16, bar = Math.floor(this.step / 16), section = Math.floor(bar / 4), b4 = bar % 4;
       const t = this.nextTime + (st % 2 ? (s.swing ?? 0) * stepDur : 0);
-      const chord = s.prog[b4 % s.prog.length];
-      const sec = section % 6; // 0 intro, 1-2 A, 3 B, 4 A, 5 B (fuller)
-      const drums = sec > 0 || b4 >= 2, full = sec >= 1;
-      if (drums) {
-        if (s.kick[st] === 'x') this.kick(t);
-        if (s.snare[st] === 'x') { this.noise(t, 0.16, 0.4, 'bandpass', 1900, this.musicBus); this.note(190, t, 0.08, 'triangle', 0.25, 900); }
-        if (s.hat[st] === 'x') this.noise(t, 0.04, st % 4 === 2 ? 0.16 : 0.09, 'highpass', 7500, this.musicBus);
+      // song form: intro, A, A, chorus, A, chorus, bridge, final chorus (up a tone, doubled)
+      const sec = section === 0 ? 0 : ((section - 1) % 7) + 1;
+      const chorus = sec === 3 || sec === 5 || sec === 7, bridge = sec === 6, final = sec === 7;
+      const key = s.root + (final ? 2 : 0);
+      const chord = (chorus && s.progB ? s.progB : s.prog)[b4 % 4];
+      const fill = b4 === 3 && st >= 12 && sec > 0;
+      if (st === 0 && b4 === 0 && sec > 0) this.noise(t, 1.1, chorus ? 0.3 : 0.16, 'highpass', 5200, this.musicBus); // crash
+      if (sec > 0 || b4 >= 2) {
+        if (fill) { this.drum(t, [230, 180, 140, 105][st - 12], [150, 115, 90, 70][st - 12], 0.2, 0.6); if (st >= 14) this.noise(t, 0.1, 0.3, 'bandpass', 1900, this.musicBus); }
+        else {
+          if (s.kick[st] === 'x' && !(bridge && b4 < 2)) this.drum(t, 150, 42, 0.22, 0.9);
+          if (s.snare[st] === 'x') { this.noise(t, 0.16, 0.4, 'bandpass', 1900, this.musicBus); this.note(190, t, 0.08, 'triangle', 0.25, 900); }
+          if (s.hat[st] === 'x') this.noise(t, st % 4 === 2 && chorus ? 0.12 : 0.04, st % 4 === 2 ? 0.16 : 0.09, 'highpass', 7500, this.musicBus);
+        }
       }
       const bn = s.bass[st];
-      if (bn !== null) this.note(hz(s.root - 12 + deg(chord) + bn), t, stepDur * 1.7, 'sawtooth', 0.34, 700);
-      if (full || b4 % 2 === 1) this.note(hz(s.root + 12 + deg(chord + s.arp[st])), t, stepDur * 0.9, 'square', 0.07, 2600, 0.5);
-      if (st === 0) for (const k of [0, 2, 4]) this.note(hz(s.root + deg(chord + k)), t, stepDur * 16, 'sawtooth', 0.045, 1100, 0, k * 5 - 5);
-      if (full) {
-        const phrase = this.parsed[sec === 3 || sec === 5 ? 1 : 0][b4];
+      if (bn !== null && !(bridge && b4 < 2 && st % 8 !== 0)) {
+        const pop = bn >= 12;
+        this.note(hz(key - 12 + deg(chord) + bn), t, stepDur * (pop ? 0.8 : 1.6), 'sawtooth', pop ? 0.26 : 0.34, pop ? 2600 : 1500, 0, 0, { q: 7, decay: 0.11 });
+        this.note(hz(key - 24 + deg(chord) + (pop ? 12 : bn)), t, stepDur * 1.4, 'square', 0.14, 500);
+      }
+      if (sec > 0 || b4 % 2 === 1) this.note(hz(key + 12 + deg(chord + s.arp[st])), t, stepDur * 0.9, 'square', bridge ? 0.1 : 0.06, bridge ? 3400 : 2400, 0.5);
+      if (st === 0) for (const k of [0, 2, 4]) this.note(hz(key + deg(chord + k)), t, stepDur * 16, 'sawtooth', chorus ? 0.055 : 0.04, 1100, 0, k * 6 - 6);
+      if (sec > 0 && !bridge) {
+        const phrase = this.parsed[chorus ? 1 : 0][b4];
         for (const n of phrase) if (n.step === st) {
-          this.note(hz(s.root + 12 + deg(n.deg)), t, stepDur * n.len * 0.92, s.leadWave, 0.15, 3200, 0.45);
-          if (sec === 5) this.note(hz(s.root + 24 + deg(n.deg)), t, stepDur * n.len * 0.92, 'triangle', 0.06, 4000, 0.3);
+          const f = hz(key + 12 + deg(n.deg)), d = stepDur * n.len * 0.94;
+          this.note(f, t, d, s.wave, 0.15, 3400, 0.4, 0, { from: this.lastLead && Math.abs(this.lastLead - f) < f * 0.35 ? this.lastLead : undefined, vib: true });
+          this.note(f, t, d, s.wave === 'pulse' ? 'sawtooth' : s.wave, 0.05, 2600, 0, 9);
+          if (final) this.note(f * 2, t, d, 'triangle', 0.07, 4200, 0.3);
+          this.lastLead = f;
         }
       }
       this.step++; this.nextTime += stepDur;

@@ -1,14 +1,16 @@
 import {
-  AI_NAMES, CAR_CLASSES, CAR_COLORS, COUNTDOWN_TICKS, POINTS, TRACK_DEFS, aiInput, createWorld, getTrack, raceTime, standings,
-  type Difficulty, type Entry, type Input, type ResultRow, type RoomState, type ServerMsg, type TimeOfDay, type Weather, type World,
+  AI_NAMES, CAR_CLASSES, CAR_COLORS, COUNTDOWN_TICKS, COUNTRIES, INTRO_TICKS, POINTS, TRACK_DEFS, aiInput, createWorld, getTrack, raceTime, skyAt, standings,
+  type Difficulty, type Entry, type Input, type ResultRow, type RoomState, type ServerMsg, type Shift, type TimeOfDay, type Weather, type World,
 } from '../../shared/src/index';
-import { carPreview } from './art/atlas';
+import { buildBackdrop } from './art/backdrops';
+import { carThumb, showroomImage } from './art/cars';
 import { GameAudio } from './audio/audio';
+import { RACE_SONGS, SONGS as SONG_DATA } from './audio/songs';
 import { LocalSession, NetSession, type Session } from './game/session';
 import { InputManager, PAD_ACTIONS, type Device, type Nav } from './input/input';
 import { NetClient } from './net/client';
 import { Hud, fmtTime } from './render/hud';
-import { makeLook, type Look } from './render/look';
+import { makeLook, mixLook, type Look } from './render/look';
 import { Renderer, type View } from './render/renderer';
 import { Menu, h, type Item, type Screen } from './ui/menu';
 
@@ -22,7 +24,7 @@ const cyc = (v: number, n: number, d: number) => (v + d + n) % n;
 const settings = load('rc_settings', {
   quality: 'high' as 'high' | 'low', crt: false,
   p: [{ name: 'Driver' + Math.floor(100 + Math.random() * 900), classId: 0, color: 0, auto: true }, { name: 'Player 2', classId: 2, color: 1, auto: true }] as Profile[],
-  dev: ['', ''] as string[],
+  dev: ['', ''] as string[], song: 'auto',
 });
 const saveSettings = () => save('rc_settings', settings);
 
@@ -41,6 +43,7 @@ menu.onSound = (k) => audio.ui(k);
 // ---------------------------------------------------------------- race state
 let session: Session | null = null;
 let look: Look = makeLook('tropical', 'day', 'clear');
+let lookA = look, lookB: Look | null = null;
 let views: View[] = [];
 let devices: Device[] = [{ kind: 'any' }];
 let racing = false, paused = false, attract = true;
@@ -50,17 +53,21 @@ let prev: { gear: number; nitro: number; bump: number }[] = [];
 let lastTick = 0;
 
 const FULL: View[] = [{ car: 0, rect: [0, 0, 1, 1] }];
-const SONGS = ['ignition', 'overdrive', 'horizon', 'midnight'];
 function songFor(trackId: string) {
-  const i = TRACK_DEFS.findIndex((t) => t.id === trackId);
-  return TRACK_DEFS[i]?.time === 'night' ? (i % 2 ? 'midnight' : 'overdrive') : SONGS[i % 3];
+  if (settings.song !== 'auto' && SONG_DATA[settings.song]) return settings.song;
+  return (TRACK_DEFS.find((t) => t.id === trackId)?.country ?? 'usa').toLowerCase();
 }
 
 function begin(s: Session, devs: Device[], done: ((w: World) => void) | null) {
   session?.dispose();
   session = s; devices = devs; onRaceDone = done; doneAt = 0; paused = false; lastTick = 0;
   const w = s.world;
-  look = makeLook(w.track.theme, w.time, w.weather);
+  renderer.setCars(w.cars);
+  renderer.setBackdrop(buildBackdrop(w.track.theme, w.track.country, w.track.seed));
+  if (w.shift === 'storm' || w.shift === 'clearing') { lookA = makeLook(w.track.theme, w.time, 'clear'); lookB = makeLook(w.track.theme, w.time, 'rain'); }
+  else if (w.shift === 'nightfall') { lookA = makeLook(w.track.theme, w.time, w.weather); lookB = makeLook(w.track.theme, w.time === 'day' ? 'dusk' : 'night', w.weather); }
+  else { lookA = makeLook(w.track.theme, w.time, w.weather); lookB = null; }
+  look = lookA;
   views = s.local.length === 2 ? [{ car: s.local[0], rect: [0, 0, 1, 0.5] }, { car: s.local[1], rect: [0, 0.5, 1, 0.5] }] : [{ car: s.local[0] ?? 0, rect: [0, 0, 1, 1] }];
   prev = s.local.map((i) => ({ gear: w.cars[i].gear, nitro: w.cars[i].nitro, bump: 0 }));
 }
@@ -68,15 +75,16 @@ function begin(s: Session, devs: Device[], done: ((w: World) => void) | null) {
 function startAttract() {
   const def = TRACK_DEFS[Math.floor(Math.random() * TRACK_DEFS.length)];
   const entries: Entry[] = AI_NAMES.map((name, i) => ({ name, classId: i % 4, color: i, auto: true, isAI: true }));
-  const world = createWorld({ track: getTrack(def.id), laps: 99, weather: def.weather, time: def.time, difficulty: 1, entries });
+  const world = createWorld({ track: getTrack(def.id), laps: 99, weather: def.weather, time: def.time, difficulty: 1, entries, shift: def.shift });
+  world.raceTicks = 60 * 150;
   world.tick = COUNTDOWN_TICKS - 1;
   begin(new LocalSession(world, []), [], null);
   views = [{ car: 6, rect: [0, 0, 1, 1] }];
   attract = true; racing = false;
-  audio.setEngines(0); audio.play('menu');
+  audio.setEngines(0); audio.play('title');
 }
 
-interface RaceCfg { trackId: string; laps: number; weather: Weather; time: TimeOfDay; grid: number; difficulty: Difficulty; humans: Profile[]; aiOrder?: { name: string; classId: number; color: number }[] }
+interface RaceCfg { trackId: string; laps: number; weather: Weather; time: TimeOfDay; shift: Shift; grid: number; difficulty: Difficulty; humans: Profile[]; aiOrder?: { name: string; classId: number; color: number }[] }
 function startLocal(cfg: RaceCfg, done: (w: World, local: number[]) => void) {
   const nAI = Math.max(0, cfg.grid - cfg.humans.length);
   const used = new Set(cfg.humans.map((p) => p.color));
@@ -84,7 +92,7 @@ function startLocal(cfg: RaceCfg, done: (w: World, local: number[]) => void) {
   const ai: Entry[] = (cfg.aiOrder ?? AI_NAMES.map((name, i) => ({ name, classId: i % 4, color: free[i % free.length] }))).slice(0, nAI)
     .map((a, i) => ({ ...a, color: used.has(a.color) ? free[i % free.length] : a.color, auto: true, isAI: true }));
   const entries = [...ai, ...cfg.humans.map((p) => ({ name: p.name, classId: p.classId, color: p.color, auto: p.auto, isAI: false }))];
-  const world = createWorld({ track: getTrack(cfg.trackId), laps: cfg.laps, weather: cfg.weather, time: cfg.time, difficulty: cfg.difficulty, entries });
+  const world = createWorld({ track: getTrack(cfg.trackId), laps: cfg.laps, weather: cfg.weather, time: cfg.time, difficulty: cfg.difficulty, entries, shift: cfg.shift });
   const local = cfg.humans.map((_, i) => nAI + i);
   begin(new LocalSession(world, local), cfg.humans.length === 2 ? splitDevices() : [{ kind: 'any' }], (w) => done(w, local));
   attract = false; racing = true;
@@ -112,22 +120,36 @@ function devItem(i: number): Item {
 }
 
 // ---------------------------------------------------------------- shared menu pieces
-const previews = new Map<string, string>();
+const COLOR_NAMES = ['Red', 'Blue', 'Yellow', 'Green', 'Orange', 'Purple', 'White', 'Black', 'Cyan', 'Pink', 'Bronze', 'Lime'];
+function statBars(classId: number) {
+  const c = CAR_CLASSES[classId];
+  const bar = (v: number) => `<i style="width:${Math.round(Math.max(0.08, Math.min(1, v)) * 100)}%"></i>`;
+  return `<div class="stat"><span>Top speed</span>${bar((c.top - 11000) / 2500)}<span>Acceleration</span>${bar((c.accel - 1300) / 800)}
+    <span>Grip</span>${bar((c.grip - 0.8) / 0.35)}<span>Fuel range</span>${bar(c.tank / 2.3e6)}</div>`;
+}
 function carCard(p: Profile) {
-  const key = p.classId + '_' + p.color;
-  if (!previews.has(key)) previews.set(key, carPreview(p.classId, p.color).toDataURL());
-  const c = CAR_CLASSES[p.classId];
-  const bar = (v: number) => `<i style="width:${Math.round(v * 100)}%"></i>`;
-  return `<div class="cars"><img src="${previews.get(key)}" width="152" height="96" alt=""><div class="stat">
-    <span>Top speed</span>${bar((c.top - 11000) / 2500)}<span>Acceleration</span>${bar((c.accel - 1300) / 800)}
-    <span>Grip</span>${bar((c.grip - 0.8) / 0.35)}<span>Fuel range</span>${bar(c.tank / 2.3e6)}</div></div>`;
+  return `<div class="cars"><img src="${carThumb(p.classId, p.color)}" width="153" height="96" alt="">${statBars(p.classId)}</div>`;
+}
+/** Full-screen car selection. */
+function showroomScreen(p: Profile, who: string, changed: () => void): Screen {
+  const done = () => { menu.pop(); if (!racing && audio.current === 'showroom') audio.play('title'); };
+  if (!racing) audio.play('showroom');
+  const step = (f: () => void) => () => { f(); changed(); };
+  return {
+    title: who ? `${who} · choose your car` : 'Choose your car', wide: true, back: done,
+    sub: () => `${CAR_CLASSES[p.classId].name} — ${CAR_CLASSES[p.classId].blurb}`,
+    body: () => `<img class="showcar" src="${showroomImage(p.classId, p.color)}" alt="">${statBars(p.classId)}`,
+    items: [
+      { label: 'Car', value: () => `${CAR_CLASSES[p.classId].name}  (${p.classId + 1}/4)`, left: step(() => (p.classId = cyc(p.classId, 4, -1))), right: step(() => (p.classId = cyc(p.classId, 4, 1))) },
+      { label: 'Colour', value: () => COLOR_NAMES[p.color], left: step(() => (p.color = cyc(p.color, 12, -1))), right: step(() => (p.color = cyc(p.color, 12, 1))) },
+      { label: 'Gearbox', value: () => (p.auto ? 'Automatic' : 'Manual'), left: step(() => (p.auto = !p.auto)), right: step(() => (p.auto = !p.auto)) },
+      { label: 'Confirm', ok: done },
+    ],
+    focus: 0,
+  };
 }
 function carItems(p: Profile, tag = '', changed: () => void = saveSettings): Item[] {
-  return [
-    { label: tag + 'Car', value: () => `${CAR_CLASSES[p.classId].name} · ${CAR_CLASSES[p.classId].blurb}`, left: () => { p.classId = cyc(p.classId, 4, -1); changed(); }, right: () => { p.classId = cyc(p.classId, 4, 1); changed(); } },
-    { label: tag + 'Colour', value: () => '● ' + ['Red', 'Blue', 'Yellow', 'Green', 'Orange', 'Purple', 'White', 'Black', 'Cyan', 'Pink', 'Bronze', 'Lime'][p.color], left: () => { p.color = cyc(p.color, 12, -1); changed(); }, right: () => { p.color = cyc(p.color, 12, 1); changed(); } },
-    { label: tag + 'Gearbox', value: () => (p.auto ? 'Automatic' : 'Manual'), left: () => { p.auto = !p.auto; changed(); }, right: () => { p.auto = !p.auto; changed(); } },
-  ];
+  return [{ label: tag + 'Car', value: () => `${CAR_CLASSES[p.classId].name} · ${COLOR_NAMES[p.color]} · ${p.auto ? 'Auto' : 'Manual'}`, ok: () => menu.push(showroomScreen(p, tag.trim(), changed)) }];
 }
 const DIFF = ['Easy', 'Medium', 'Hard'];
 const WEATHERS: (Weather | 'default')[] = ['default', 'clear', 'rain', 'fog', 'snow'];
@@ -146,10 +168,10 @@ function message(title: string, text: string, then: () => void) {
 // ---------------------------------------------------------------- menus
 function titleScreen(): Screen {
   return {
-    title: 'Redline Circuit', sub: () => 'Arcade racing · 12 tracks · 4 countries',
+    title: 'Redline Circuit', sub: () => `Arcade racing · ${TRACK_DEFS.length} tracks · ${COUNTRIES.length} countries`,
     items: [
       { label: 'Single race', ok: () => menu.push(setupScreen(1)) },
-      { label: 'Championship', ok: () => menu.push(champScreen()) },
+      { label: 'World tour', ok: () => menu.push(champScreen()) },
       { label: 'Split-screen (2 players)', ok: () => menu.push(setupScreen(2)) },
       { label: 'Online multiplayer', ok: () => openOnline() },
       { label: 'Options', ok: () => menu.push(optionsScreen()) },
@@ -160,14 +182,14 @@ function toTitle() { net.close(); menu.reset(titleScreen()); startAttract(); }
 
 const setup = load('rc_setup', { track: 0, laps: 0, weather: 0, time: 0, grid: 12, difficulty: 1 as Difficulty });
 function setupScreen(players: number): Screen {
-  const def = () => TRACK_DEFS[setup.track];
+  const def = () => TRACK_DEFS[setup.track % TRACK_DEFS.length];
   const sv = () => save('rc_setup', setup);
   const grids = [2, 4, 6, 8, 12];
   const items: Item[] = [
     { label: 'Track', value: () => `${def().name} · ${def().country}`, left: () => { setup.track = cyc(setup.track, TRACK_DEFS.length, -1); sv(); }, right: () => { setup.track = cyc(setup.track, TRACK_DEFS.length, 1); sv(); } },
     { label: 'Laps', value: () => (setup.laps ? String(setup.laps) : `${def().laps} (default)`), left: () => { setup.laps = cyc(setup.laps, 10, -1); sv(); }, right: () => { setup.laps = cyc(setup.laps, 10, 1); sv(); } },
-    { label: 'Weather', value: () => (setup.weather ? cap(WEATHERS[setup.weather]) : `${cap(def().weather)} (default)`), left: () => { setup.weather = cyc(setup.weather, 5, -1); sv(); }, right: () => { setup.weather = cyc(setup.weather, 5, 1); sv(); } },
-    { label: 'Time of day', value: () => (setup.time ? cap(TIMES[setup.time]) : `${cap(def().time)} (default)`), left: () => { setup.time = cyc(setup.time, 4, -1); sv(); }, right: () => { setup.time = cyc(setup.time, 4, 1); sv(); } },
+    { label: 'Weather', value: () => (setup.weather ? cap(WEATHERS[setup.weather]) : `${cap(def().weather)}${({ storm: ' → storm', clearing: ' → clearing', nightfall: '', none: '' } as Record<string, string>)[def().shift]} (default)`), left: () => { setup.weather = cyc(setup.weather, 5, -1); sv(); }, right: () => { setup.weather = cyc(setup.weather, 5, 1); sv(); } },
+    { label: 'Time of day', value: () => (setup.time ? cap(TIMES[setup.time]) : `${cap(def().time)}${def().shift === 'nightfall' ? ' → night' : ''} (default)`), left: () => { setup.time = cyc(setup.time, 4, -1); sv(); }, right: () => { setup.time = cyc(setup.time, 4, 1); sv(); } },
     { label: 'Grid', value: () => (setup.grid === 2 ? 'Duel · 1 vs 1' : setup.grid === 12 ? 'Full grid · 12 cars' : setup.grid + ' cars'), left: () => { setup.grid = grids[cyc(grids.indexOf(setup.grid), grids.length, -1)]; sv(); }, right: () => { setup.grid = grids[cyc(grids.indexOf(setup.grid), grids.length, 1)]; sv(); } },
     { label: 'AI difficulty', value: () => DIFF[setup.difficulty], left: () => { setup.difficulty = cyc(setup.difficulty, 3, -1) as Difficulty; sv(); }, right: () => { setup.difficulty = cyc(setup.difficulty, 3, 1) as Difficulty; sv(); } },
     ...carItems(settings.p[0], players === 2 ? 'P1 ' : ''),
@@ -178,13 +200,14 @@ function setupScreen(players: number): Screen {
     const d = def();
     const cfg: RaceCfg = {
       trackId: d.id, laps: setup.laps || d.laps, weather: setup.weather ? (WEATHERS[setup.weather] as Weather) : d.weather, time: setup.time ? (TIMES[setup.time] as TimeOfDay) : d.time,
+      shift: setup.weather || setup.time ? 'none' : d.shift,
       grid: Math.max(setup.grid, players), difficulty: setup.difficulty, humans: settings.p.slice(0, players).map((p, i) => ({ ...p, name: players === 2 ? 'Player ' + (i + 1) : p.name })),
     };
     startLocal(cfg, (w, local) => {
       const rows = standings(w).map((i) => ({ name: w.cars[i].name, time: raceTime(w.cars[i]), me: local.includes(i), color: w.cars[i].color }));
       audio.play('results'); startAttract(); audio.play('results');
       menu.reset(titleScreen()); menu.push(setupScreen(players));
-      menu.push({ title: 'Results', sub: () => d.name, body: () => resultsTable(rows), items: [{ label: 'Race again', ok: () => go() }, { label: 'Back', ok: () => { menu.pop(); audio.play('menu'); } }], back: () => { menu.pop(); audio.play('menu'); } });
+      menu.push({ title: 'Results', sub: () => d.name, body: () => resultsTable(rows), items: [{ label: 'Race again', ok: () => go() }, { label: 'Back', ok: () => { menu.pop(); audio.play('title'); } }], back: () => { menu.pop(); audio.play('title'); } });
     });
   };
   return { title: players === 2 ? 'Split-screen' : 'Single race', body: () => carCard(settings.p[0]) + (players === 2 ? carCard(settings.p[1]) : ''), items, focus: items.length - 1, back: () => menu.pop() };
@@ -194,18 +217,22 @@ function optionsScreen(): Screen {
   const vol = (get: () => number, set: (v: number) => void): Pick<Item, 'value' | 'left' | 'right'> => ({
     value: () => Math.round(get() * 100) + '%', left: () => { set(Math.max(0, get() - 0.1)); audio.saveVol(); }, right: () => { set(Math.min(1, get() + 0.1)); audio.saveVol(); },
   });
+  const list = ['auto', ...RACE_SONGS];
+  const juke = (d: number) => { settings.song = list[cyc(Math.max(0, list.indexOf(settings.song)), list.length, d)]; saveSettings(); if (!racing) audio.play(settings.song === 'auto' ? 'title' : settings.song); };
+  const leave = () => { menu.pop(); if (!racing) audio.play('title'); };
   const tq = () => { settings.quality = settings.quality === 'high' ? 'low' : 'high'; saveSettings(); };
   const tc = () => { settings.crt = !settings.crt; saveSettings(); };
   return {
-    title: 'Options', back: () => menu.pop(),
+    title: 'Options', back: leave,
     items: [
       { label: 'Music volume', ...vol(() => audio.musicVol, (v) => (audio.musicVol = v)) },
       { label: 'Effects volume', ...vol(() => audio.sfxVol, (v) => (audio.sfxVol = v)) },
+      { label: 'Race music', value: () => (settings.song === 'auto' ? 'Auto (by country)' : SONG_DATA[settings.song].title), left: () => juke(-1), right: () => juke(1) },
       { label: 'Graphics', value: () => (settings.quality === 'high' ? 'High (bloom, full resolution)' : 'Low (faster)'), left: tq, right: tq },
       { label: 'CRT scanlines', value: () => (settings.crt ? 'On' : 'Off'), left: tc, right: tc },
       { label: 'Fullscreen', ok: () => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); } },
       { label: 'Controller buttons', ok: () => menu.push(bindScreen()) },
-      { label: 'Back', ok: () => menu.pop() },
+      { label: 'Back', ok: leave },
     ],
   };
 }
@@ -226,41 +253,62 @@ function bindScreen(): Screen {
   };
 }
 
-// ---------------------------------------------------------------- championship
+// ---------------------------------------------------------------- world tour
+const NR = TRACK_DEFS.length;
+const b36 = (n: number, len: number) => Math.max(0, Math.round(n)).toString(36).toUpperCase().padStart(len, '0');
+/** Compact resume code: round, difficulty, players and the twelve point totals, with a check character. */
+function tourCode(c: Champ) {
+  const body = b36(c.round, 2) + c.difficulty + c.humans.length + c.points.map((p) => b36(p, 2)).join('');
+  let sum = 0; for (const ch of body) sum = (sum * 31 + ch.charCodeAt(0)) % 36;
+  return body + sum.toString(36).toUpperCase();
+}
+function parseTourCode(code: string): Champ | null {
+  const t = code.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (t.length !== 29) return null;
+  const body = t.slice(0, 28); let sum = 0; for (const ch of body) sum = (sum * 31 + ch.charCodeAt(0)) % 36;
+  if (sum.toString(36).toUpperCase() !== t[28]) return null;
+  const round = parseInt(body.slice(0, 2), 36), difficulty = Number(body[2]), nh = Number(body[3]);
+  if (!(round >= 0 && round <= NR) || ![0, 1, 2].includes(difficulty) || ![1, 2].includes(nh)) return null;
+  const points = Array.from({ length: 12 }, (_, i) => parseInt(body.slice(4 + i * 2, 6 + i * 2), 36));
+  const humans = settings.p.slice(0, nh).map((p, i) => ({ ...p, name: nh === 2 ? 'Player ' + (i + 1) : p.name }));
+  return { round, difficulty: difficulty as Difficulty, humans, names: [...humans.map((p) => p.name), ...AI_NAMES.slice(0, 12 - nh)], points };
+}
 function champScreen(): Screen {
   const saved = (): Champ | null => { try { return JSON.parse(localStorage.getItem('rc_champ') || 'null'); } catch { return null; } };
   const cfg = { players: 1, difficulty: 1 as Difficulty };
+  let code = '';
   const start = () => {
     const humans = settings.p.slice(0, cfg.players).map((p, i) => ({ ...p, name: cfg.players === 2 ? 'Player ' + (i + 1) : p.name }));
     const c: Champ = { round: 0, difficulty: cfg.difficulty, humans, names: [...humans.map((p) => p.name), ...AI_NAMES.slice(0, 12 - humans.length)], points: new Array(12).fill(0) };
     save('rc_champ', c); menu.push(champHub(c));
   };
   return {
-    title: 'Championship', sub: () => '12 races across Brazil, USA, Japan and Norway', back: () => menu.pop(),
+    title: 'World tour', sub: () => `${NR} races · ${COUNTRIES.join(' · ')}`, back: () => menu.pop(),
     body: () => carCard(settings.p[0]) + (cfg.players === 2 ? carCard(settings.p[1]) : ''),
     items: [
-      { label: () => { const s = saved(); return s ? `Continue · round ${Math.min(12, s.round + 1)} of 12` : 'Continue'; }, hidden: () => !saved(), ok: () => menu.push(champHub(saved()!)) },
+      { label: () => { const s = saved(); return s ? `Continue · race ${Math.min(NR, s.round + 1)} of ${NR}` : 'Continue'; }, hidden: () => !saved(), ok: () => menu.push(champHub(saved()!)) },
       { label: 'Players', value: () => (cfg.players === 1 ? '1 player' : '2 players (split-screen)'), left: () => (cfg.players = 3 - cfg.players), right: () => (cfg.players = 3 - cfg.players) },
       { label: 'AI difficulty', value: () => DIFF[cfg.difficulty], left: () => (cfg.difficulty = cyc(cfg.difficulty, 3, -1) as Difficulty), right: () => (cfg.difficulty = cyc(cfg.difficulty, 3, 1) as Difficulty) },
       ...carItems(settings.p[0], 'P1 '),
       ...carItems(settings.p[1], 'P2 ').map((i) => ({ ...i, hidden: () => cfg.players === 1 })),
       { ...devItem(0), hidden: () => cfg.players === 1 }, { ...devItem(1), hidden: () => cfg.players === 1 },
-      { label: 'New championship', ok: start },
+      { label: 'New world tour', ok: start },
+      { label: 'Tour code', text: { get: () => code, set: (v) => (code = v), max: 34, upper: true } },
+      { label: 'Resume from code', ok: () => { const c = parseTourCode(code); if (c) { save('rc_champ', c); menu.push(champHub(c)); } else message('World tour', 'That code is not valid.', () => menu.pop()); } },
     ],
   };
 }
 function champHub(c: Champ): Screen {
-  const nh = c.humans.length, over = c.round >= TRACK_DEFS.length;
-  const table = () => {
-    const ids = c.names.map((_, i) => i).sort((a, b) => c.points[b] - c.points[a] || a - b);
-    return `<table class="t"><tr><th>#</th><th>Driver</th><th class="r">Points</th></tr>${ids.map((id, i) => `<tr class="${id < nh ? 'me' : ''}"><td>${i + 1}</td><td>${h(c.names[id])}</td><td class="r">${c.points[id]}</td></tr>`).join('')}</table>`;
-  };
+  const nh = c.humans.length, over = c.round >= NR;
+  const ranked = () => c.names.map((_, i) => i).sort((a, b) => c.points[b] - c.points[a] || a - b);
+  const table = () => `<table class="t"><tr><th>#</th><th>Driver</th><th class="r">Points</th></tr>${ranked().map((id, i) => `<tr class="${id < nh ? 'me' : ''}"><td>${i + 1}</td><td>${h(c.names[id])}</td><td class="r">${c.points[id]}</td></tr>`).join('')}</table>`;
+  const stops = () => `<div class="tour">${COUNTRIES.map((n, i) => `<span class="${Math.floor(Math.min(c.round, NR - 1) / 4) === i && !over ? 'on' : c.round >= (i + 1) * 4 ? 'done' : ''}">${n}</span>`).join('')}</div>`;
   const race = () => {
     const d = TRACK_DEFS[c.round];
     const aiIds = c.names.map((_, i) => i).filter((i) => i >= nh).sort((a, b) => c.points[b] - c.points[a] || a - b);
     const drivers = [...aiIds, ...c.humans.map((_, i) => i)]; // car idx -> driver id
     startLocal({
-      trackId: d.id, laps: d.laps, weather: d.weather, time: d.time, grid: 12, difficulty: c.difficulty, humans: c.humans,
+      trackId: d.id, laps: d.laps, weather: d.weather, time: d.time, shift: d.shift, grid: 12, difficulty: c.difficulty, humans: c.humans,
       aiOrder: aiIds.map((id) => ({ name: c.names[id], classId: id % 4, color: id })),
     }, (w, local) => {
       const order = standings(w);
@@ -268,17 +316,22 @@ function champHub(c: Champ): Screen {
       c.round++; save('rc_champ', c);
       startAttract(); audio.play('results');
       menu.reset(titleScreen()); menu.push(champHub(c));
-      menu.push({ title: 'Race results', sub: () => d.name, body: () => resultsTable(rows), items: [{ label: 'Continue', ok: () => menu.pop() }], back: () => menu.pop() });
+      if (c.round % 4 === 0 && c.round < NR) {
+        const lead = c.names[ranked()[0]];
+        menu.push({ title: `${d.country} complete`, sub: () => `${lead} leads the tour · next stop: ${TRACK_DEFS[c.round].country}`, body: table, items: [{ label: 'Continue', ok: () => menu.pop() }], back: () => menu.pop() });
+      }
+      menu.push({ title: 'Race results', sub: () => `${d.name} · ${d.country}`, body: () => resultsTable(rows), items: [{ label: 'Continue', ok: () => menu.pop() }], back: () => menu.pop() });
     });
   };
-  const champion = () => c.names[c.names.map((_, i) => i).sort((a, b) => c.points[b] - c.points[a] || a - b)[0]];
+  const d = TRACK_DEFS[Math.min(c.round, NR - 1)];
+  const quit = () => { menu.reset(titleScreen()); audio.play('title'); };
   return {
-    title: over ? 'Champion!' : `Round ${c.round + 1} of 12`,
-    sub: () => (over ? `${champion()} wins the championship` : `Next: ${TRACK_DEFS[c.round].name}, ${TRACK_DEFS[c.round].country} · ${TRACK_DEFS[c.round].laps} laps · ${cap(TRACK_DEFS[c.round].weather)} ${TRACK_DEFS[c.round].time}`),
-    body: table, back: () => { menu.reset(titleScreen()); audio.play('menu'); },
+    title: over ? 'Tour champion!' : `${d.country} · race ${(c.round % 4) + 1} of 4`,
+    sub: () => (over ? `${c.names[ranked()[0]]} wins the world tour` : `Race ${c.round + 1} of ${NR}: ${d.name} · ${d.laps} laps · ${cap(d.weather)} ${d.time}${d.shift !== 'none' ? ' · changing sky' : ''}`),
+    body: () => stops() + table() + (over ? '' : `<p class="tcode">Resume code: <b>${tourCode(c)}</b></p>`), back: quit,
     items: over
-      ? [{ label: 'Finish', ok: () => { localStorage.removeItem('rc_champ'); menu.reset(titleScreen()); audio.play('menu'); } }]
-      : [{ label: 'Start race', ok: race }, { label: 'Save and quit', ok: () => { menu.reset(titleScreen()); audio.play('menu'); } }],
+      ? [{ label: 'Finish', ok: () => { localStorage.removeItem('rc_champ'); quit(); } }]
+      : [{ label: 'Start race', ok: race }, { label: 'Save and quit', ok: quit }],
   };
 }
 
@@ -327,7 +380,7 @@ function lobbyScreen(): Screen {
       { label: () => (mine?.ready ? 'Not ready' : 'Ready'), ok: () => net.send({ t: 'ready', ready: !mine?.ready }) },
       { label: 'Start race', hidden: () => !host || r.racing, ok: () => net.send({ t: 'start' }) },
       ...carItems(me, '', sendCar),
-      hostOnly({ label: 'Track', value: () => `${def.name} · ${def.country}`, left: () => set({ trackId: TRACK_DEFS[cyc(ti, 12, -1)].id, laps: TRACK_DEFS[cyc(ti, 12, -1)].laps }), right: () => set({ trackId: TRACK_DEFS[cyc(ti, 12, 1)].id, laps: TRACK_DEFS[cyc(ti, 12, 1)].laps }) }),
+      hostOnly({ label: 'Track', value: () => `${def.name} · ${def.country}`, left: () => set({ trackId: TRACK_DEFS[cyc(ti, TRACK_DEFS.length, -1)].id, laps: TRACK_DEFS[cyc(ti, TRACK_DEFS.length, -1)].laps }), right: () => set({ trackId: TRACK_DEFS[cyc(ti, TRACK_DEFS.length, 1)].id, laps: TRACK_DEFS[cyc(ti, TRACK_DEFS.length, 1)].laps }) }),
       hostOnly({ label: 'Laps', value: () => String(s.laps), left: () => set({ laps: Math.max(1, s.laps - 1) }), right: () => set({ laps: Math.min(9, s.laps + 1) }) }),
       hostOnly({ label: 'Weather', value: () => (s.weather === 'default' ? `${cap(def.weather)} (default)` : cap(s.weather)), left: () => set({ weather: WEATHERS[cyc(WEATHERS.indexOf(s.weather), 5, -1)] }), right: () => set({ weather: WEATHERS[cyc(WEATHERS.indexOf(s.weather), 5, 1)] }) }),
       hostOnly({ label: 'Time of day', value: () => (s.time === 'default' ? `${cap(def.time)} (default)` : cap(s.time)), left: () => set({ time: TIMES[cyc(TIMES.indexOf(s.time), 4, -1)] }), right: () => set({ time: TIMES[cyc(TIMES.indexOf(s.time), 4, 1)] }) }),
@@ -367,7 +420,7 @@ function showOnlineResults(rows: ResultRow[]) {
   netSession = null; startAttract(); audio.play('results');
   menu.reset(titleScreen()); menu.push(onlineScreen());
   if (room) menu.push(lobbyScreen());
-  const done = () => { menu.pop(); audio.play('menu'); };
+  const done = () => { menu.pop(); audio.play('title'); };
   menu.push({ title: 'Results', body: () => resultsTable(rows.map((r) => ({ name: r.name, time: r.time, me: r.idx === myIdx, color: w?.cars[r.idx]?.color }))), items: [{ label: 'Continue', ok: done }], back: done });
 }
 
@@ -401,7 +454,7 @@ let last = performance.now() / 1000, padCount = -1;
 
 function raceEvents(w: World) {
   if (w.phase === 'countdown') {
-    for (const t of [60, 120, 180]) if (lastTick < t && w.tick >= t) audio.beep(440, 0.18, 0.3);
+    for (const t of [60, 120, 180]) if (lastTick < INTRO_TICKS + t && w.tick >= INTRO_TICKS + t) audio.beep(440, 0.18, 0.3);
   }
   if (lastTick < COUNTDOWN_TICKS && w.tick >= COUNTDOWN_TICKS && lastTick > 0) audio.beep(880, 0.5, 0.35);
   lastTick = w.tick;
@@ -439,7 +492,9 @@ function frame() {
       session.update(dt, session.local.map((idx, i) => (idle ? NONE : autopilot ? aiInput(w, idx) : input.read(devices[i] ?? { kind: 'any' }))));
       if (racing) raceEvents(w);
     } else session.local.forEach((_, i) => audio.updateEngine(i, 0.1, 0, 0, false));
-    renderer.render(w, views.length ? views : FULL, look, now, { bloom: settings.quality === 'high', crt: settings.crt, scale: settings.quality === 'high' ? 1 : 0.7 });
+    if (lookB) { const sk = skyAt(w); look = mixLook(lookA, lookB, w.shift === 'nightfall' ? sk.night : sk.rain); }
+    const ik = racing && w.phase === 'countdown' ? Math.min(1, w.tick / (INTRO_TICKS - 20)) : 1;
+    renderer.render(w, views.length ? views : FULL, look, now, { bloom: settings.quality === 'high', crt: settings.crt, scale: settings.quality === 'high' ? 1 : 0.7, intro: ik * ik * (3 - 2 * ik) });
     if (racing) hud.draw(w, views, now, { ping: session.online ? net.ping : undefined, names: true }); else hud.clear();
     if (racing && w.phase === 'done' && onRaceDone) {
       if (!doneAt) doneAt = now + 2.5;

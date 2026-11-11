@@ -21,11 +21,22 @@ For internet play, host that process anywhere that allows WebSockets and share t
 
 ## Modes
 
-- **Single race** – any track, 2–12 cars (2 = 1 vs 1 duel against the AI), weather/time overrides, 3 AI levels.
-- **Championship** – 12 races in Brazil, USA, Japan and Norway, points table, 1 or 2 players, progress saved in the browser.
+- **Single race** – any of 32 tracks, 2–12 cars (2 = 1 vs 1 duel against the AI), weather/time overrides, 3 AI levels.
+- **World tour** – 32 races through Brazil, USA, Japan, Norway, Italy, UK, Egypt and Australia (4 each), points table,
+  1 or 2 players. Progress is saved in the browser, and the hub shows a resume code you can type on another machine.
 - **Split-screen** – two players on one machine (two pads, pad + keyboard, or two keyboard layouts).
 - **Online** – full-grid rooms (up to 12 humans, AI fills the rest) or 1 vs 1 duel rooms. The server is authoritative;
   a player who disconnects is replaced by the AI. Someone joining mid-race waits in the lobby for the next race.
+
+## Driving
+
+- **Showroom** – pick one of four cars (speed, acceleration, grip and fuel range differ), a colour and the gearbox.
+- **Perfect start** – during the lights, hold the revs inside the green band on the dial for a launch boost. Flat out gives wheelspin.
+- **Slipstream** – tuck in behind another car at speed to gain a tow.
+- **Contact** – cars alongside each other only nudge apart; only running into the back of a car costs speed.
+- **Fuel** – the pit lane is on the right before the start line (yellow marker on the lap bar) and refuels as you drive through.
+- **Changing sky** – some races go from dusk to night, or a storm arrives or clears, mid-race. Grip changes with it.
+- **Music** – Options → Race music picks a song for races, or leave it on Auto for one theme per country.
 
 ## Controls
 
@@ -40,8 +51,6 @@ For internet play, host that process anywhere that allows WebSockets and share t
 Pad buttons can be remapped in Options → Controller buttons. Split-screen keyboards: WASD + Left Shift + Q/E, and arrows + Right Shift + `,` `.`.
 Browsers only expose a controller after a button is pressed on it, and only start audio after a key press or click.
 
-Fuel drains as you drive; the pit lane is on the right before the start line (yellow marker on the lap bar) and refuels while you drive through it.
-
 ## Layout
 
 - `packages/shared` – deterministic 60 Hz simulation, tracks, AI, network protocol (used by client and server)
@@ -54,6 +63,7 @@ Fuel drains as you drive; the pit lane is on the right before the start line (ye
 npm test                 # simulation + server integration (12 scripted clients run a full race)
 npm run typecheck
 node packages/client/smoke.mjs <screenshot-dir> <url>   # headless browser run against a running server
+node packages/client/gallery.mjs <screenshot-dir> <url> 0 16 24   # screenshots of the showroom and given track numbers
 ```
 
 URL flags: `?autopilot` (AI drives your car), `?padtest` (raw controller state), `?lag=150` (simulated network delay in ms).

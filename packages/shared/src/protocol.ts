@@ -1,9 +1,9 @@
 import type { Car, Difficulty, Entry, Input, World } from './sim';
-import type { TimeOfDay, Weather } from './track';
+import type { Shift, TimeOfDay, Weather } from './track';
 
 export const MSG_SNAPSHOT = 1;
 export const MSG_INPUT = 2;
-const CAR_BYTES = 29;
+const CAR_BYTES = 33;
 const PHASES = ['countdown', 'racing', 'done'] as const;
 
 export interface RoomSettings {
@@ -12,7 +12,7 @@ export interface RoomSettings {
 }
 export interface RoomPlayer { id: number; name: string; classId: number; color: number; auto: boolean; ready: boolean }
 export interface RoomState { code: string; hostId: number; racing: boolean; settings: RoomSettings; players: RoomPlayer[] }
-export interface RaceStart { trackId: string; laps: number; weather: Weather; time: TimeOfDay; difficulty: Difficulty; entries: Entry[]; yourIdx: number }
+export interface RaceStart { trackId: string; laps: number; weather: Weather; time: TimeOfDay; difficulty: Difficulty; entries: Entry[]; yourIdx: number; shift: Shift }
 export interface ResultRow { idx: number; name: string; time: number; human: boolean }
 
 export type ClientMsg =
@@ -63,6 +63,7 @@ export function decodeInput(buf: ArrayBuffer): { seq: number; input: Input } | n
 export interface SnapCar {
   x: number; z: number; speed: number; fuel: number; nitroT: number; steer: number; lap: number; gear: number; nitro: number;
   finished: boolean; dnf: boolean; pNitro: boolean; pUp: boolean; pDown: boolean; inPit: boolean; offroad: boolean; isAI: boolean; bump: number;
+  draft: number; bogT: number; launchT: number; rpm: number;
 }
 export interface Snapshot { tick: number; phase: World['phase']; ack: number; cars: SnapCar[] }
 
@@ -76,6 +77,8 @@ export function encodeSnapshot(w: World, ack: number): ArrayBuffer {
     b.setUint8(o + 24, c.lap); b.setUint8(o + 25, c.gear); b.setUint8(o + 26, c.nitro);
     b.setUint8(o + 27, (c.finished ? 1 : 0) | (c.dnf ? 2 : 0) | (c.pNitro ? 4 : 0) | (c.pUp ? 8 : 0) | (c.pDown ? 16 : 0) | (c.inPit ? 32 : 0) | (c.offroad ? 64 : 0) | (c.isAI ? 128 : 0));
     b.setUint8(o + 28, Math.round(Math.min(1, c.bump) * 255));
+    b.setUint8(o + 29, Math.round(c.draft * 255)); b.setUint8(o + 30, Math.round(Math.min(2.55, c.bogT) * 100));
+    b.setUint8(o + 31, Math.round(Math.min(2.55, c.launchT) * 100)); b.setUint8(o + 32, Math.round(Math.min(1.27, Math.max(0, c.rpm)) * 200));
     o += CAR_BYTES;
   }
   return b.buffer;
@@ -94,6 +97,7 @@ export function decodeSnapshot(buf: ArrayBuffer): Snapshot | null {
       lap: b.getUint8(o + 24), gear: b.getUint8(o + 25), nitro: b.getUint8(o + 26),
       finished: !!(f & 1), dnf: !!(f & 2), pNitro: !!(f & 4), pUp: !!(f & 8), pDown: !!(f & 16), inPit: !!(f & 32), offroad: !!(f & 64), isAI: !!(f & 128),
       bump: b.getUint8(o + 28) / 255,
+      draft: b.getUint8(o + 29) / 255, bogT: b.getUint8(o + 30) / 100, launchT: b.getUint8(o + 31) / 100, rpm: b.getUint8(o + 32) / 200,
     });
     o += CAR_BYTES;
   }
@@ -102,4 +106,5 @@ export function decodeSnapshot(buf: ArrayBuffer): Snapshot | null {
 export function applySnapCar(c: Car, s: SnapCar) {
   c.x = s.x; c.z = s.z; c.speed = s.speed; c.fuel = s.fuel; c.nitroT = s.nitroT; c.steer = s.steer; c.lap = s.lap; c.gear = s.gear; c.nitro = s.nitro;
   c.finished = s.finished; c.dnf = s.dnf; c.pNitro = s.pNitro; c.pUp = s.pUp; c.pDown = s.pDown; c.inPit = s.inPit; c.offroad = s.offroad; c.isAI = s.isAI; c.bump = s.bump;
+  c.draft = s.draft; c.bogT = s.bogT; c.launchT = s.launchT; c.rpm = s.rpm;
 }

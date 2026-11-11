@@ -1,5 +1,5 @@
 import {
-  DT, applySnapCar, collidePair, createWorld, decodeSnapshot, encodeInput, getTrack, quantizeInput, stepCar, stepWorld, wrapDiff,
+  DT, applySnapCar, collidePair, createWorld, decodeSnapshot, encodeInput, getTrack, quantizeInput, stepCar, stepWorld, wetness, wrapDiff,
   type Car, type Input, type RaceStart, type Snapshot, type World,
 } from '../../../shared/src/index';
 
@@ -50,7 +50,7 @@ export class NetSession implements Session {
   private errX = 0; private errZ = 0; private px = 0; private pz = 0;
 
   constructor(race: RaceStart, private send: (data: ArrayBuffer) => void) {
-    this.world = createWorld({ track: getTrack(race.trackId), laps: race.laps, weather: race.weather, time: race.time, difficulty: race.difficulty, entries: race.entries });
+    this.world = createWorld({ track: getTrack(race.trackId), laps: race.laps, weather: race.weather, time: race.time, difficulty: race.difficulty, entries: race.entries, shift: race.shift });
     this.local = [race.yourIdx];
     this.me = this.world.cars[race.yourIdx];
     this.px = this.me.x; this.pz = this.me.z;
@@ -64,13 +64,13 @@ export class NetSession implements Session {
     const w = this.world, L = w.track.length, me = this.me;
     this.snaps.push({ t: performance.now() / 1000, s });
     if (this.snaps.length > 30) this.snaps.shift();
-    w.tick = s.tick; w.phase = s.phase;
+    w.tick = s.tick; w.phase = s.phase; w.wet = wetness(w);
     const bx = me.x, bz = me.z;
     const wasPredicting = this.pending.length > 0;
     applySnapCar(me, s.cars[me.idx]);
     this.pending = this.pending.filter((p) => p.seq > s.ack);
     if (this.predicting()) {
-      for (const p of this.pending) stepCar(me, p.input, w.track, w.weather);
+      for (const p of this.pending) stepCar(me, p.input, w.track, w.wet);
       if (wasPredicting) {
         const dz = wrapDiff(bz - me.z, L);
         if (Math.abs(dz) < 2500) { this.errX += bx - me.x; this.errZ += dz; } else { this.errX = 0; this.errZ = 0; }
@@ -90,7 +90,7 @@ export class NetSession implements Session {
         this.pending.push({ seq: this.seq, input: inp });
         if (this.pending.length > 120) this.pending.shift();
         this.px = me.x; this.pz = me.z;
-        stepCar(me, inp, w.track, w.weather);
+        stepCar(me, inp, w.track, w.wet);
         for (const o of w.cars) if (o !== me && !o.dnf) collidePair(me, { ...o }, L);
       }
     }
@@ -110,7 +110,6 @@ export class NetSession implements Session {
         c.x = c.rx; c.z = c.rz;
         c.speed = A.speed + (B.speed - A.speed) * Math.min(1, k);
         c.steer = A.steer + (B.steer - A.steer) * Math.min(1, k);
-        c.rpm = Math.min(1, c.speed / (13000 * [0.28, 0.46, 0.64, 0.82, 1][Math.max(0, c.gear - 1)]));
       }
     }
     if (this.predicting()) {

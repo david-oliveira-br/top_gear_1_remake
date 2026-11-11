@@ -1,4 +1,4 @@
-import { CAR_CLASSES, CAR_COLORS, COUNTDOWN_TICKS, KMH, standings, type World } from '../../../shared/src/index';
+import { CAR_CLASSES, CAR_COLORS, COUNTDOWN_TICKS, INTRO_TICKS, KMH, LAUNCH_HI, LAUNCH_LO, standings, type World } from '../../../shared/src/index';
 import type { View } from './renderer';
 
 const fmt = (t: number) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(2)}`; };
@@ -36,6 +36,15 @@ export class Hud {
     };
     g.save(); g.beginPath(); g.rect(x0, y0, vw, vh); g.clip();
     const m = 24 * s;
+    if (w.phase === 'countdown' && w.tick < INTRO_TICKS) { // intro title card
+      const a = Math.min(1, w.tick / 25, (INTRO_TICKS - w.tick) / 25);
+      g.globalAlpha = Math.max(0, a);
+      g.fillStyle = 'rgba(5,6,12,.55)'; g.fillRect(x0, y0 + vh * 0.62, vw, vh * 0.24);
+      g.fillStyle = '#ff3b3b'; g.fillRect(x0, y0 + vh * 0.62, vw, 4 * s);
+      text(w.track.name.toUpperCase(), x0 + vw / 2, y0 + vh * 0.74, 64, '#fff', 'center');
+      text(`${w.track.country}  ·  ${w.laps} ${w.laps === 1 ? 'lap' : 'laps'}  ·  ${w.cars.length} cars`, x0 + vw / 2, y0 + vh * 0.81, 26, '#ffd23c', 'center', 600);
+      g.globalAlpha = 1; g.restore(); return;
+    }
 
     // position + lap
     text(String(pos), x0 + m, y0 + m + 62 * s, 78, pos === 1 ? '#ffd23c' : '#fff');
@@ -63,12 +72,14 @@ export class Hud {
     g.lineCap = 'round'; g.lineWidth = 10 * s;
     g.strokeStyle = 'rgba(255,255,255,.16)'; g.beginPath(); g.arc(cx, cy, r, a0, a1); g.stroke();
     g.strokeStyle = 'rgba(255,60,60,.5)'; g.beginPath(); g.arc(cx, cy, r, a0 + (a1 - a0) * 0.88, a1); g.stroke();
-    g.strokeStyle = c.nitroT > 0 ? '#59c8ff' : rpm > 0.9 ? '#ff4d4d' : '#ffd23c';
+    if (w.phase === 'countdown') { g.strokeStyle = 'rgba(90,255,120,.85)'; g.lineWidth = 16 * s; g.lineCap = 'butt'; g.beginPath(); g.arc(cx, cy, r, a0 + (a1 - a0) * LAUNCH_LO, a0 + (a1 - a0) * LAUNCH_HI); g.stroke(); g.lineCap = 'round'; g.lineWidth = 10 * s; }
+    g.strokeStyle = c.nitroT > 0 ? '#59c8ff' : w.phase === 'countdown' ? (rpm >= LAUNCH_LO && rpm <= LAUNCH_HI ? '#5dff7a' : '#fff') : rpm > 0.9 ? '#ff4d4d' : '#ffd23c';
     g.beginPath(); g.arc(cx, cy, r, a0, a0 + (a1 - a0) * Math.min(1, rpm)); g.stroke();
     text(String(Math.round(c.speed * KMH)), cx, cy + 14 * s, 54, '#fff', 'center');
     text('km/h', cx, cy + 38 * s, 16, '#cfd6e4', 'center', 600);
     text(String(c.gear), cx, cy + 82 * s, 34, rpm > 0.9 && !c.auto ? '#ff4d4d' : '#fff', 'center');
     text(c.auto ? 'AUTO' : 'MANUAL', cx, cy - 44 * s, 13, '#9aa6bd', 'center', 700);
+    if (c.draft > 0.15) { g.globalAlpha = Math.min(1, c.draft * 1.5); text('SLIPSTREAM', cx, cy - r - 30 * s, 22, '#9fe9ff', 'center'); g.fillStyle = '#9fe9ff'; g.fillRect(cx - 60 * s, cy - r - 24 * s, 120 * s * c.draft, 5 * s); g.globalAlpha = 1; }
 
     // fuel + nitro
     const fx = x0 + m, fy = y0 + vh - m - 26 * s, fw = 220 * s, fh = 18 * s;
@@ -86,12 +97,15 @@ export class Hud {
     // centre messages
     const mx = x0 + vw / 2, my = y0 + vh * 0.34;
     if (w.phase === 'countdown') {
-      const lit = Math.floor(w.tick / 60);
+      const lit = Math.floor((w.tick - INTRO_TICKS) / 60);
+      text('HOLD THE REVS IN THE GREEN BAND', mx, my + 74 * s, 22, '#b9ffc6', 'center', 700);
       for (let i = 0; i < 3; i++) {
         g.fillStyle = 'rgba(8,10,16,.75)'; g.beginPath(); g.arc(mx + (i - 1) * 74 * s, my, 32 * s, 0, 7); g.fill();
         g.fillStyle = i < lit ? '#ff3030' : '#3a0c0c'; g.beginPath(); g.arc(mx + (i - 1) * 74 * s, my, 24 * s, 0, 7); g.fill();
       }
-    } else if (w.tick < COUNTDOWN_TICKS + 70 && !c.finished) text('GO!', mx, my + 30 * s, 110, '#5dff7a', 'center');
+    } else if (c.launchT > 0) { text('PERFECT START!', mx, my + 20 * s, 84, '#5dff7a', 'center'); }
+    else if (c.bogT > 0) { text('WHEELSPIN', mx, my + 20 * s, 70, '#ff8a6a', 'center'); }
+    else if (w.tick < COUNTDOWN_TICKS + 70 && !c.finished) text('GO!', mx, my + 30 * s, 110, '#5dff7a', 'center');
     else if (c.dnf) text('OUT OF FUEL', mx, my, 70, '#ff4d4d', 'center');
     else if (c.finished) { text('FINISH', mx, my - 10 * s, 80, '#ffd23c', 'center'); text(ORD(pos) + ' place', mx, my + 50 * s, 44, '#fff', 'center'); }
     else if (c.inPit) text(c.fuel < 0.995 ? 'PIT LANE · REFUELLING' : 'TANK FULL', mx, my, 40, '#ffd23c', 'center');

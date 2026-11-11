@@ -75,8 +75,9 @@ export class Room {
     humans.forEach((h, i) => { h.carIdx = nAI + i; h.queue = []; h.last = NO_INPUT; h.ack = 0; entries.push({ name: h.name, classId: h.classId, color: h.color, auto: h.auto, isAI: false }); });
     const race: Omit<RaceStart, 'yourIdx'> = {
       trackId: def.id, laps: s.laps, weather: s.weather === 'default' ? def.weather : s.weather, time: s.time === 'default' ? def.time : s.time, difficulty: s.difficulty, entries,
+      shift: s.weather === 'default' && s.time === 'default' ? def.shift : 'none',
     };
-    this.world = createWorld({ track: getTrack(def.id), laps: race.laps, weather: race.weather, time: race.time, difficulty: race.difficulty, entries });
+    this.world = createWorld({ track: getTrack(def.id), laps: race.laps, weather: race.weather, time: race.time, difficulty: race.difficulty, entries, shift: race.shift });
     for (const h of humans) sendTo(h, { t: 'race', race: { ...race, yourIdx: h.carIdx } });
     this.lastTime = performance.now(); this.acc = 0;
     this.timer = setInterval(() => this.tick(), 1000 / 120);

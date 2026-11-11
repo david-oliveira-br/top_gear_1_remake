@@ -31,7 +31,7 @@ class Bot {
       else if (m.t === 'results') { this.results = m.rows; if (this.timer) clearInterval(this.timer); }
       else if (m.t === 'race') {
         this.race = m.race;
-        this.world = createWorld({ track: getTrack(m.race.trackId), laps: m.race.laps, weather: m.race.weather, time: m.race.time, difficulty: m.race.difficulty, entries: m.race.entries });
+        this.world = createWorld({ track: getTrack(m.race.trackId), laps: m.race.laps, weather: m.race.weather, time: m.race.time, difficulty: m.race.difficulty, entries: m.race.entries, shift: m.race.shift });
         this.timer = setInterval(() => {
           const w = this.world!; const inp = quantizeInput(aiInput(w, m.race.yourIdx));
           const buf = encodeInput(++this.seq, inp);
