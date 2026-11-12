@@ -3,7 +3,7 @@ import { BASE, CITIES, EVENTS, MAX_LEVEL, PART_IDS, RIO, buildSpec, buildTrack, 
   type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { Radio } from './audio/radio';
-import { CarVisual, FINISHES, PAINTS } from './car/visual';
+import { CAR_NAMES, CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
 import { Controls } from './input';
@@ -44,6 +44,8 @@ export class App {
     addEventListener('pointermove', (e) => { if (this.drag) this.orbit += e.movementX * 0.006; });
     this.radio.onChange = () => this.radioChip();
     loading.remove();
+    if (this.q.get('hideui')) this.ui.style.display = 'none'; // capture helpers: ?hideui=1&orbit=<radians>
+    if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
     const go = this.q.get('go');
     if (go === 'race') this.startEvent(EVENTS.find((e) => e.id === this.q.get('ev')) ?? EVENTS[0]); else if (go === 'garage') this.garage(); else if (go === 'map') this.mapScreen(); else this.title();
     const skip = +(this.q.get('t') ?? 0); if (this.session) for (let i = 0; i < skip * 60; i++) this.session.update(1 / 60, null);
@@ -111,7 +113,7 @@ export class App {
       const spec2 = buildSpec(parts2, c.tuning), nxt = ratings(spec2);
       const bar = (name: string, a: number, b: number) => [h('div.stat', null, h('span', null, name), h('span', null, Math.round(b * 100) + '')), h('div.bar', null, h('i.gain', { style: { width: b * 100 + '%' } }), h('i', { style: { width: a * 100 + '%' } }))];
       const dc = h<'canvas'>('canvas.dyno');
-      left.replaceChildren(h('div.panel', null, h('h2', null, 'Vento GT'), h('div.stat', null, h('span', null, 'Potência'), h('span', { html: `<b style="color:var(--acc2);font-size:20px">${nxt.hp} cv</b>${nxt.hp !== now.hp ? ' (+' + (nxt.hp - now.hp) + ')' : ''}` })),
+      left.replaceChildren(h('div.panel', null, h('h2', null, CAR_NAMES[0]), h('div.stat', null, h('span', null, 'Potência'), h('span', { html: `<b style="color:var(--acc2);font-size:20px">${nxt.hp} cv</b>${nxt.hp !== now.hp ? ' (+' + (nxt.hp - now.hp) + ')' : ''}` })),
         h('div.stat', null, h('span', null, 'Peso'), h('span', null, Math.round(spec2.mass) + ' kg')), h('div', { style: { height: '8px' } }),
         ...bar('Aceleração', now.power, nxt.power), ...bar('Velocidade final', now.top, nxt.top), ...bar('Aderência', now.grip, nxt.grip), ...bar('Frenagem', now.braking, nxt.braking), ...bar('Nitro', now.nitro, nxt.nitro)),
         h('div.panel', null, h('h3', null, 'Dinamômetro'), dc));
@@ -130,7 +132,7 @@ export class App {
           sl('Asa', 'mais asa: mais curva, menos reta (exige kit aero)', 0, 1, () => c.tuning.wing, (v) => (c.tuning.wing = v)), sl('Freio dianteiro', 'distribuição da frenagem', 0.5, 0.75, () => c.tuning.bias, (v) => (c.tuning.bias = v))];
       } else body = [h('h3', null, 'Cor'), h('div.sw', null, ...PAINTS.map((col, i) => h('i' + (c.paint === i ? '.on' : ''), { style: { background: col }, onclick: () => { c.paint = i; saveCareer(c); this.refreshCar(); draw(); } }))),
         h('h3', { style: { marginTop: '14px' } }, 'Acabamento'), h('div.tabs', null, ...FINISHES.map((f, i) => h('button' + (c.finish === i ? '.on' : ''), { onclick: () => { c.finish = i; saveCareer(c); this.refreshCar(); draw(); } }, f))),
-        h('h3', null, 'Rodas'), h('div.tabs', null, ...['Prata', 'Grafite', 'Ouro'].map((f, i) => h('button' + (c.wheels === i ? '.on' : ''), { onclick: () => { c.wheels = i; saveCareer(c); this.refreshCar(); draw(); } }, f)))];
+        h('h3', null, 'Rodas'), h('div.tabs', null, ...WHEELS.map((f, i) => h('button' + (c.wheels === i ? '.on' : ''), { onclick: () => { c.wheels = i; saveCareer(c); this.refreshCar(); draw(); } }, f)))];
       side.replaceChildren(h('div.panel', { onmouseleave: () => { if (this.preview) { this.preview = null; draw(); } } }, tabs, ...body));
     };
     draw();
@@ -167,7 +169,7 @@ export class App {
     const c = this.career, auto = this.q.get('auto');
     const lvl = (n: number) => buildSpec({ engine: n, turbo: n, gearbox: n, tyres: n, suspension: n, brakes: n, weight: n, aero: n, nitro: n });
     const entrants: Entrant[] = ev.rivals.map((r) => ({ spec: r.parts ? lvl(r.parts) : BASE, driver: r.driver, name: r.driver.name, paint: r.paint }));
-    const looks: Look[] = ev.rivals.map((r, i) => ({ paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
+    const looks: Look[] = ev.rivals.map((r, i) => ({ kind: (i + 1) % 2, paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
     entrants.push({ spec: buildSpec(c.parts, c.tuning), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: c.paint }); looks.push(this.look());
     const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5));
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
@@ -189,7 +191,7 @@ export class App {
     if (this.controls.hit('Escape') || this.controls.padHit(9)) this.pause(!this.paused);
     if (this.controls.hit('KeyP')) this.togglePhoto();
     if (this.controls.hit('KeyC') || this.controls.padHit(8)) { s.cam = s.cam === 'chase' ? 'hood' : 'chase'; this.settings.cam = s.cam; saveSettings(this.settings); }
-    const frozen = this.paused || this.photo, inp = this.controls.read(dt);
+    const frozen = this.paused || this.photo, inp = this.controls.out;
     if (this.photo) { s.cam = 'orbit'; if (!this.drag) s.orbit += inp.steer * dt * 1.5; else s.orbit = this.orbit; }
     s.update(frozen ? 0 : dt, me.ai ? null : inp);
     if (frozen) { a.updateEngine(0, 0.12, 0, 0, false); return; }
@@ -219,7 +221,23 @@ export class App {
     if (me.finished && !this.endTimer) { this.endTimer = 2.6; this.say('CHEGADA!', 2.4, '#ffb020'); }
     if (this.endTimer && (this.endTimer -= dt) <= 0) this.results();
   }
-  private finalSaid = false;
+  private finalSaid = false; private padSeen = false;
+  /** Drive the menus with a controller: d-pad or stick moves the highlight, A / ✕ selects, B / ○ goes back. */
+  private padMenu() {
+    const c = this.controls, p = c.pad;
+    if (!!p !== this.padSeen) { this.padSeen = !!p; this.ui.querySelector('.padchip')?.remove(); if (p) { const el = h('div.chip.padchip', null, '🎮 ' + (/xbox|xinput/i.test(p.id) ? 'Controle Xbox' : /dualshock|dualsense|054c|wireless controller/i.test(p.id) ? 'Controle PlayStation' : 'Controle') + ' conectado'); this.ui.append(el); setTimeout(() => el.remove(), 4000); } }
+    if (!p) return;
+    const ay = p.axes[1] ?? 0, ax = p.axes[0] ?? 0, stick = Math.abs(ay) > 0.6 ? Math.sign(ay) : Math.abs(ax) > 0.6 ? Math.sign(ax) : 0, moved = stick !== 0 && this.stickWas === 0; this.stickWas = stick;
+    const next = c.padHit(13) || c.padHit(15) || (moved && stick > 0), prev = c.padHit(12) || c.padHit(14) || (moved && stick < 0), ok = c.padHit(0), back = c.padHit(1);
+    if (this.screen === 'race' && !this.paused) return;
+    const list = Array.from(this.ui.querySelectorAll<HTMLElement>('button:not(:disabled), .sw i, .lbl, input[type=checkbox]')).filter((e) => e.offsetParent !== null);
+    if (!list.length) return;
+    let i = list.indexOf(document.activeElement as HTMLElement);
+    if (next || prev) { i = i < 0 ? 0 : (i + (next ? 1 : -1) + list.length) % list.length; for (const e of list) e.classList.remove('focus'); const e = list[i]; e.tabIndex = 0; e.focus(); e.classList.add('focus'); e.scrollIntoView({ block: 'nearest' }); this.audio.ui('move'); }
+    else if (ok && i >= 0) { list[i].click(); this.audio.ui('ok'); }
+    else if (back) { const b = list.find((e) => /^(Voltar|Continuar|Sair|Fechar)$/i.test(e.textContent || '')); if (b) { b.click(); this.audio.ui('back'); } }
+  }
+  private stickWas = 0;
   private pause(on: boolean) {
     if (this.photo) return; this.paused = on; this.ui.querySelector('.pausebox')?.remove();
     if (on) this.ui.append(h('div.center.panel.pausebox', null, h('h2', null, 'Pausa'), h('div.menu', { style: { marginTop: '12px', width: '100%' } }, h('button.pri', { onclick: () => this.pause(false) }, 'Continuar'),
@@ -252,6 +270,7 @@ export class App {
   private frame() {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
     const eng = this.eng, cam = eng.camera;
+    this.controls.read(dt); this.padMenu();
     if (this.screen === 'race' || (this.screen === 'results' && this.session)) {
       if (this.screen === 'race') this.raceFrame(dt); else { this.session!.cam = 'orbit'; this.session!.orbit += dt * 0.25; this.session!.update(dt, null); }
     } else if (this.screen === 'map') { this.globe.update(dt, this.labels); eng.blur.value = 0; }

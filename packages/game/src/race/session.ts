@@ -5,7 +5,7 @@ import type { Engine } from '../gfx/engine';
 import type { World } from '../world/rio';
 
 export type CamMode = 'chase' | 'hood' | 'orbit';
-export interface Look { paint: number; finish?: number; wheels?: number; aero?: number; lower?: number; }
+export interface Look { kind?: number; paint: number; finish?: number; wheels?: number; aero?: number; lower?: number; }
 
 /** One running race: steps the simulation at 60 Hz and poses cars and camera every frame. */
 export class Session {
@@ -17,14 +17,14 @@ export class Session {
 
   constructor(private eng: Engine, private world: World, track: Track, entrants: Entrant[], laps: number, looks: Look[], playerIndex: number, seed = 1, rubber = 0.5) {
     this.race = createRace(track, entrants, laps, seed, rubber); this.player = playerIndex;
-    this.race.racers.forEach((r, i) => { const v = new CarVisual(); v.setLook(looks[i]); eng.scene.add(v.group); this.visuals.push(v); this.prev.push([r.car.x, r.car.y, r.car.z, r.car.yaw]); });
+    this.race.racers.forEach((r, i) => { const v = new CarVisual(looks[i].kind ?? 0); v.setLook(looks[i]); eng.scene.add(v.group); this.visuals.push(v); this.prev.push([r.car.x, r.car.y, r.car.z, r.car.yaw]); });
   }
   get me(): Racer { return this.race.racers[this.player]; }
   private stride = 1;
   /** `stride`: the path holds one sample every this many ticks. */
   setGhost(path: number[], look: Look, stride = 1) {
     this.ghost = path; this.stride = stride; if (!path.length) return;
-    const v = (this.ghostCar = new CarVisual()); v.setLook(look);
+    const v = (this.ghostCar = new CarVisual(look.kind ?? 0)); v.setLook(look);
     v.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = false; const mat = (m.material as THREE.Material).clone(); mat.transparent = true; mat.opacity = 0.35; mat.depthWrite = false; m.material = mat; } });
     this.eng.scene.add(v.group);
   }
