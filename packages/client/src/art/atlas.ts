@@ -126,6 +126,12 @@ const lamp: Draw = (g, e, w, h) => {
   gl.addColorStop(0, 'rgba(255,240,180,1)'); gl.addColorStop(1, 'rgba(255,220,120,0)');
   e.fillStyle = gl; e.fillRect(0, 0, w, h * 0.3);
 };
+/** Low reflective marker post: the roadside rhythm that sells speed. */
+const post: Draw = (g, e, w, h) => {
+  g.fillStyle = '#e9ecef'; g.fillRect(w * 0.3, h * 0.12, w * 0.4, h * 0.88);
+  g.fillStyle = '#1b1d22'; g.fillRect(w * 0.3, h * 0.12, w * 0.4, h * 0.3);
+  for (const c of [g, e]) { c.fillStyle = '#ff5a2a'; c.fillRect(w * 0.36, h * 0.18, w * 0.28, h * 0.18); }
+};
 function billboard(bg: [string, string], l1: string, l2: string, fg: string): Draw {
   return (g, e, w, h) => {
     g.fillStyle = '#4a4f58'; g.fillRect(w * 0.2, h * 0.6, w * 0.05, h * 0.4); g.fillRect(w * 0.75, h * 0.6, w * 0.05, h * 0.4);
@@ -287,6 +293,7 @@ export function buildAtlas(): Atlas {
   add('gantry', 768, 240, 5800, gantry);
   add('tunnel', 640, 280, 14000, tunnel('#3a3d44', false));
   add('portal', 640, 280, 14000, tunnel('#7b756c', true));
+  add('post', 24, 72, 130, post);
   add('shadow', 64, 20, 1000, shadow);
   return { base, emis, sprites };
 }

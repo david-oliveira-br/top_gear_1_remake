@@ -73,8 +73,8 @@ describe('simulation', () => {
     const w = mk('mojave', 2, 1);
     w.tick = COUNTDOWN_TICKS; w.phase = 'racing';
     const [lead, tail] = w.cars;
-    lead.z = 20000; tail.z = 18500; lead.x = tail.x = 0; lead.speed = tail.speed = 11000; lead.gear = tail.gear = 5;
-    for (let i = 0; i < 90; i++) { stepWorld(w, []); tail.z = lead.z - 1500; tail.x = lead.x; }
+    lead.z = 20000; tail.z = 17800; lead.x = tail.x = 0; lead.speed = tail.speed = 11000; lead.gear = tail.gear = 5;
+    for (let i = 0; i < 90; i++) { stepWorld(w, []); tail.z = lead.z - 2200; tail.x = lead.x; }
     expect(tail.draft).toBeGreaterThan(0.9); expect(lead.draft).toBe(0);
     for (let i = 0; i < 90; i++) { stepWorld(w, []); tail.x = lead.x + 1; }
     expect(tail.draft).toBe(0);

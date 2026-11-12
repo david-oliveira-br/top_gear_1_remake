@@ -54,7 +54,7 @@ Browsers only expose a controller after a button is pressed on it, and only star
 ## Layout
 
 - `packages/shared` – deterministic 60 Hz simulation, tracks, AI, network protocol (used by client and server)
-- `packages/client` – WebGL2 renderer, procedural art (cars are 3D models baked to sprites), Web Audio synth soundtrack and engine, input, menus
+- `packages/client` – WebGL2 renderer, procedural art (cars are 3D models drawn in the scene, with spinning wheels; painted horizons carry a landmark for each circuit), Web Audio synth soundtrack and engine, input, menus
 - `packages/server` – Node WebSocket rooms + static file server
 
 ## Checks

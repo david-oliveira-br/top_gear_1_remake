@@ -39,7 +39,7 @@ export function makeLook(theme: ThemeId, time: TimeOfDay, weather: Weather): Loo
   if (time === 'day') { top = [0.16, 0.45, 0.92]; hor = [0.68, 0.84, 1]; sunCol = [1, 0.95, 0.75]; amb = [1, 1, 1]; sun = [0.68, 0.62]; }
   else if (time === 'dusk') { top = [0.22, 0.17, 0.46]; hor = [1, 0.52, 0.28]; sunCol = [1, 0.6, 0.25]; amb = [0.82, 0.66, 0.6]; sun = [0.42, 0.08]; head = 0.3; night = 0.45; }
   else { top = [0.01, 0.02, 0.07]; hor = [0.07, 0.1, 0.24]; sunCol = [0.75, 0.8, 0.95]; amb = [0.26, 0.29, 0.42]; sun = [0.3, 0.7]; stars = 1; head = 1; night = 1; }
-  let cloud = time === 'night' ? 0.35 : 0.5, fogDist = 40000, wet = 0, rain = 0, snow = 0, storm = false;
+  let cloud = time === 'night' ? 0.35 : time === 'day' ? 0.4 : 0.5, fogDist = 40000, wet = 0, rain = 0, snow = 0, storm = false;
   let cloudCol: V3 = time === 'day' ? [1, 1, 1] : time === 'dusk' ? [0.95, 0.6, 0.5] : [0.12, 0.14, 0.24];
   const gray: V3 = time === 'night' ? [0.06, 0.07, 0.1] : time === 'dusk' ? [0.4, 0.34, 0.36] : [0.62, 0.66, 0.7];
   if (weather === 'rain') { top = mix(top, gray, 0.75); hor = mix(hor, gray, 0.7); cloud = 0.95; cloudCol = mul(gray, 0.8); fogDist = 27000; wet = 1; rain = 1; stars = 0; sunCol = mul(sunCol, 0.15); amb = mul(amb, 0.8); storm = true; }

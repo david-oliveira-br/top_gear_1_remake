@@ -62,8 +62,7 @@ function begin(s: Session, devs: Device[], done: ((w: World) => void) | null) {
   session?.dispose();
   session = s; devices = devs; onRaceDone = done; doneAt = 0; paused = false; lastTick = 0;
   const w = s.world;
-  renderer.setCars(w.cars);
-  renderer.setBackdrop(buildBackdrop(w.track.theme, w.track.country, w.track.seed));
+  renderer.setBackdrop(buildBackdrop(w.track.theme, w.track.country, w.track.seed, w.track.id));
   if (w.shift === 'storm' || w.shift === 'clearing') { lookA = makeLook(w.track.theme, w.time, 'clear'); lookB = makeLook(w.track.theme, w.time, 'rain'); }
   else if (w.shift === 'nightfall') { lookA = makeLook(w.track.theme, w.time, w.weather); lookB = makeLook(w.track.theme, w.time === 'day' ? 'dusk' : 'night', w.weather); }
   else { lookA = makeLook(w.track.theme, w.time, w.weather); lookB = null; }

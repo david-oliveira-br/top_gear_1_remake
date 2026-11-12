@@ -3,10 +3,12 @@ import { carMesh, type CarMesh } from './carmodel';
 // Small dedicated WebGL renderer for the car models: bakes race sprites and draws the live showroom.
 const VS = `#version 300 es
 layout(location=0) in vec3 aPos; layout(location=1) in vec3 aN; layout(location=2) in float aMat;
-uniform vec2 uYaw,uElev; uniform vec4 uFrame; uniform float uPersp,uFlip;
+uniform vec2 uYaw,uElev; uniform vec4 uFrame,uAxle; uniform float uPersp,uFlip;
 out vec3 vN,vP,vL; out float vMat;
 void main(){
-  vec3 p=aPos; p.y*=uFlip; vec3 n=aN; n.y*=uFlip;
+  vec3 p=aPos, n=aN;
+  if(aMat>15.5){ float cz=aMat>31.5?uAxle.z:uAxle.y, c=cos(uAxle.w), s=sin(uAxle.w); vec2 q=vec2(p.y-uAxle.x,p.z-cz); p.y=uAxle.x+q.x*c-q.y*s; p.z=cz+q.x*s+q.y*c; }
+  p.y*=uFlip; n.y*=uFlip;
   vec3 w=vec3(p.x*uYaw.x+p.z*uYaw.y,p.y,-p.x*uYaw.y+p.z*uYaw.x);
   vN=vec3(n.x*uYaw.x+n.z*uYaw.y,n.y,-n.x*uYaw.y+n.z*uYaw.x); vP=w; vL=aPos; vMat=aMat;
   float xv=w.x, yv=w.y*uElev.x+w.z*uElev.y, d=-w.y*uElev.y+w.z*uElev.x;
@@ -26,7 +28,7 @@ vec3 env(vec3 r){
   return mix(day,st,uStudio);
 }
 void main(){
-  int m=int(vMat+0.5);
+  int m=int(mod(vMat+0.5,16.));
   vec3 N=normalize(vN), V=normalize(uV), L=normalize(vec3(-0.45,0.75,-0.5)), H=normalize(L+V), R=reflect(-V,N);
   if(m==9){ // floor: soft contact shadow, plus a pool of light in the showroom
     float sh=0.62*smoothstep(1.,0.3,length(vec2(vL.x/1.12,vL.z/2.55)));
@@ -68,7 +70,7 @@ export class CarRenderer {
     const sh = (t: number, src: string) => { const s = gl.createShader(t)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('car shader: ' + gl.getShaderInfoLog(s)); return s; };
     const p = (this.p = gl.createProgram()!); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('car link: ' + gl.getProgramInfoLog(p));
-    for (const n of ['uYaw', 'uElev', 'uFrame', 'uPersp', 'uFlip', 'uColor', 'uV', 'uEmis', 'uAlpha', 'uStudio']) this.u[n] = gl.getUniformLocation(p, n);
+    for (const n of ['uYaw', 'uElev', 'uFrame', 'uPersp', 'uFlip', 'uColor', 'uV', 'uAxle', 'uEmis', 'uAlpha', 'uStudio']) this.u[n] = gl.getUniformLocation(p, n);
     const q = 7, f: number[] = [];
     for (const [x, z] of [[-q, -q], [q, -q], [q, q], [-q, -q], [q, q], [-q, q]]) f.push(x, 0.004, z, 0, 1, 0, 9);
     this.floor = this.vao(new Float32Array(f));
@@ -93,7 +95,7 @@ export class CarRenderer {
    */
   draw(o: { cls: number; color: [number, number, number]; yaw: number; elev: number; w: number; h: number; emis?: boolean; studio?: boolean;
     /** draw into this part of the canvas only (x, y, w, h in pixels); the canvas itself stays w x h and is not cleared first */
-    vp?: [number, number, number, number];
+    vp?: [number, number, number, number]; spin?: number;
     ortho?: { widthM: number; heightM: number; centreY: number }; persp?: { dist: number; fov: number; centreY: number } }) {
     const gl = this.gl, cv = this.canvas;
     if (cv.width !== o.w || cv.height !== o.h) { cv.width = o.w; cv.height = o.h; }
@@ -109,6 +111,7 @@ export class CarRenderer {
     if (o.persp) { const f = 1 / Math.tan(o.persp.fov / 2); gl.uniform1f(u.uPersp, 1); gl.uniform4f(u.uFrame, (f * vh) / vw, f, o.persp.centreY, o.persp.dist); }
     else { const fr = o.ortho!; gl.uniform1f(u.uPersp, 0); gl.uniform4f(u.uFrame, 2 / fr.widthM, 2 / fr.heightM, fr.centreY, 0); }
     const m = this.mesh(o.cls);
+    gl.uniform4f(u.uAxle, m.mesh.axle[0], m.mesh.axle[1], m.mesh.axle[2], o.spin ?? 0);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     if (o.studio && !o.emis) { // mirrored car under the floor
       gl.disable(gl.BLEND); gl.uniform1f(u.uFlip, -1); gl.uniform1f(u.uAlpha, 0.2);

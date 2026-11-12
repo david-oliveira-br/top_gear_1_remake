@@ -37,6 +37,7 @@ const SCENERY: Record<ThemeId, { kinds: [string, number][]; density: number; lam
   dunes: { kinds: [['datepalm', 5], ['ruin', 2], ['rock', 3], ['deadtree', 1]], density: 0.09, lamps: false },
   outback: { kinds: [['gumtree', 5], ['redrock', 3], ['bush', 3], ['deadtree', 1]], density: 0.11, lamps: false },
 };
+const SMALL: Record<ThemeId, string> = { tropical: 'bush', desert: 'rock', city: 'bush', snow: 'snowrock', sakura: 'bush', forest: 'bush', tuscany: 'haybale', moor: 'bush', dunes: 'rock', outback: 'redrock' };
 const WIDE = new Set(['building_a', 'building_b', 'building_c', 'house', 'cabin', 'villa', 'cottage', 'ruin']);
 
 export function buildTrack(def: TrackDef): Track {
@@ -94,8 +95,12 @@ export function buildTrack(def: TrackDef): Track {
         put(i, kind, side * off);
       }
     }
-    if (th.lamps && i % 30 === 0) { put(i, 'lamp', -1.3); if (!s.pit) put(i, 'lamp', 1.3); }
-    if (Math.abs(s.curve) >= 3 && i % 24 === 0) {
+    if (i % 4 === 0) { put(i, 'post', -1.17, false); put(i, 'post', s.pit ? 2.06 : 1.17, false); }
+    for (const side of [-1, 1]) { // low clutter right at the verge
+      if (rnd() < 0.07 && !(side > 0 && s.pit)) put(i, SMALL[def.theme], side * (1.32 + rnd() * 0.5), false);
+    }
+    if (th.lamps && i % 20 === 0) { put(i, 'lamp', -1.3); if (!s.pit) put(i, 'lamp', 1.3); }
+    if (Math.abs(s.curve) >= 2 && i % 12 === 0) {
       if (s.curve > 0) put(i, 'sign_right', -1.4); else if (!s.pit) put(i, 'sign_left', 1.4);
     }
     if (i % 400 === 250 && !s.pit && Math.abs(s.curve) < 1) put(i, 'gantry', 0, false);

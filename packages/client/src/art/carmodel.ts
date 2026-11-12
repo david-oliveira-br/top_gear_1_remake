@@ -1,7 +1,9 @@
 // Procedural 3D car meshes. Units are metres: x = right, y = up, z = forward. The car sits on y = 0, centred on x/z.
 
 export const MAT = { paint: 0, glass: 1, rubber: 2, chrome: 3, dark: 4, tail: 5, head: 6, plate: 7, trim: 8 } as const;
-export interface CarMesh { data: Float32Array; count: number; length: number; rearAxle: number; tail: { x: number; y: number; z: number } }
+export interface CarMesh { data: Float32Array; count: number; length: number; rearAxle: number; tail: { x: number; y: number; z: number };
+  /** wheel centres: height, rear z, front z. Spinning parts carry material + 16 (rear) or + 32 (front). */
+  axle: [number, number, number]; halfW: number }
 
 interface Spec {
   L: number; W: number; sill: number; deck: number; roof: number; cowl: number; nose: number; beltR: number; beltF: number;
@@ -59,7 +61,7 @@ class Builder {
   }
 }
 
-function build(s: Spec): CarMesh {
+function build(s: Spec, lod: boolean): CarMesh {
   const b = new Builder();
   const half = s.L / 2, Z = (t: number) => -half + t * s.L;
   const top = (t: number) => curve([[0, s.deck - 0.05], [0.03, s.deck], [s.tA, s.deck], [s.tB, s.roof], [(s.tB + s.tC) / 2, s.roof + 0.015], [s.tC, s.roof - 0.012], [s.tD, s.cowl], [0.93, s.nose + 0.07], [1, s.nose - 0.05]], t);
@@ -68,13 +70,13 @@ function build(s: Spec): CarMesh {
   const under = (t: number) => s.sill + 0.05 * sm(0.9, 1, t) + 0.04 * (1 - sm(0, 0.08, t));
   const endScale = (t: number) => { const e = Math.min(t / 0.045, (1 - t) / 0.05, 1); return 0.8 + 0.2 * Math.sqrt(1 - (1 - e) * (1 - e)); };
 
-  const NS = 72;
+  const NS = lod ? 22 : 72, WS = lod ? 10 : 32;
   const ts = Array.from({ length: NS }, (_, i) => i / (NS - 1));
   const rings: V[][] = ts.map((t) => {
     const w = width(t), y0 = under(t), yb = belt(t), yt = top(t), cab = sm(0.03, 0.3, yt - yb);
     const wt = w * 0.88 + (s.W * s.roofW - w * 0.88) * cab;
     let pts: [number, number][] = [[0, y0], [w * 0.8, y0], [w, y0 + 0.1], [w * 1.005, y0 * 0.45 + yb * 0.55], [w * 0.985, yb], [wt, yt - 0.02 * cab], [0, yt + 0.02]];
-    pts = chaikin(chaikin(pts));
+    pts = lod ? chaikin(pts) : chaikin(chaikin(pts));
     const sc = endScale(t), yc = (y0 + yb) / 2;
     return pts.map(([x, y]): V => [x * sc, yc + (y - yc) * sc, Z(t)]);
   });
@@ -144,20 +146,24 @@ function build(s: Spec): CarMesh {
 
   // ---- wheels ----
   for (const t of [s.axR, s.axF]) for (const sx of [-1, 1]) {
+    const spin = t === s.axR ? 16 : 32;
     const w = width(t), z = Z(t), R = s.wheelR, xo = sx * (w + 0.035), xc = sx * (w + 0.035 - 0.125);
-    b.cyl('x', [sx * (w + 0.006), R + 0.03, z], R + 0.075, 0.012, MAT.trim, MAT.trim, 32);
-    b.cyl('x', [xc, R, z], R, 0.25, MAT.rubber, MAT.rubber, 32);
-    b.cyl('x', [xo, R, z], R * 0.7, 0.012, MAT.trim, MAT.trim, 28);
+    b.cyl('x', [sx * (w + 0.006), R + 0.03, z], R + 0.075, 0.012, MAT.trim, MAT.trim, WS);
+    b.cyl('x', [xc, R, z], R, 0.25, MAT.rubber, MAT.rubber, WS);
+    b.cyl('x', [xo, R, z], R * 0.7, 0.012, lod ? MAT.chrome : MAT.trim, lod ? MAT.chrome : MAT.trim, WS);
+    if (lod) continue;
     for (let k = 0; k < 5; k++) { // spokes
       const a = (k / 5) * 6.2832 + 0.3, ca = Math.cos(a), sa = Math.sin(a), w2 = R * 0.085;
       const pt = (rad: number, o: number): V => [xo + sx * 0.012, R + sa * rad - ca * o, z + ca * rad + sa * o];
-      b.quad(pt(R * 0.1, -w2), pt(R * 0.68, -w2 * 0.8), pt(R * 0.68, w2 * 0.8), pt(R * 0.1, w2), MAT.chrome, [sx, 0, 0]);
+      b.quad(pt(R * 0.1, -w2), pt(R * 0.68, -w2 * 0.8), pt(R * 0.68, w2 * 0.8), pt(R * 0.1, w2), MAT.chrome + spin, [sx, 0, 0]);
     }
-    b.cyl('x', [xo + sx * 0.012, R, z], R * 0.16, 0.014, MAT.chrome, MAT.chrome, 16);
+    b.cyl('x', [xo + sx * 0.012, R, z], R * 0.16, 0.014, MAT.chrome + spin, MAT.chrome + spin, 16);
+    b.box(xo + sx * 0.008, R + R * 0.86, z, 0.02, R * 0.1, R * 0.16, MAT.plate + spin); // tyre marking, makes the spin readable
   }
   const data = new Float32Array(b.out);
-  return { data, count: data.length / 7, length: s.L, rearAxle: Z(s.axR), tail: { x: xm * 0.62, y: ly, z: -half } };
+  return { data, count: data.length / 7, length: s.L, rearAxle: Z(s.axR), tail: { x: xm * 0.62, y: ly, z: -half }, axle: [s.wheelR, Z(s.axR), Z(s.axF)], halfW: s.W };
 }
 
 const cache: (CarMesh | undefined)[] = [];
-export function carMesh(cls: number): CarMesh { return (cache[cls] ??= build(SPECS[cls] ?? SPECS[0])); }
+/** lod = true gives a much lighter mesh for cars far from the camera. */
+export function carMesh(cls: number, lod = false): CarMesh { return (cache[cls + (lod ? 16 : 0)] ??= build(SPECS[cls] ?? SPECS[0], lod)); }

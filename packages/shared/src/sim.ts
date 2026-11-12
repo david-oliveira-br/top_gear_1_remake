@@ -9,7 +9,7 @@ export const COUNTDOWN_TICKS = INTRO_TICKS + 240;
 export const NITRO_TIME = 3.5;
 export const NITRO_START = 3;
 export const PIT_SPEED = 3600;
-export const CAR_LEN = 560;
+export const CAR_LEN = 1650; // bumper to bumper, matches the drawn car
 export const CAR_W = 0.3;
 export const LAUNCH_LO = 0.6, LAUNCH_HI = 0.8;
 const NITRO_ACC = 2600;
@@ -57,7 +57,7 @@ export function createWorld(o: { track: Track; laps: number; weather: Weather; t
   const base = [0.86, 0.91, 0.955][o.difficulty];
   const cars: Car[] = o.entries.map((e, s) => {
     const row = Math.floor(s / 2);
-    const z = o.track.length - 600 - row * 1600 - (s % 2 ? 500 : 0);
+    const z = o.track.length - 1200 - row * 2600 - (s % 2 ? 800 : 0);
     const x = s % 2 ? 0.45 : -0.45;
     void rows;
     return {
@@ -201,7 +201,7 @@ function decideLane(w: World, c: Car) {
   for (const o of w.cars) {
     if (o === c) continue;
     const dz = wrapDiff(o.z - c.z, len);
-    if (dz > 0 && dz < 3400 && Math.abs(o.x - c.x) < 0.42 && o.speed < c.speed + 150) { blocked = true; break; }
+    if (dz > 0 && dz < 4500 && Math.abs(o.x - c.x) < 0.42 && o.speed < c.speed + 150) { blocked = true; break; }
   }
   if (!blocked) return;
   const lanes = [-0.62, 0, 0.62].sort((p, q) => Math.abs(p - c.x) - Math.abs(q - c.x));
@@ -211,7 +211,7 @@ function decideLane(w: World, c: Car) {
     for (const o of w.cars) {
       if (o === c) continue;
       const dz = wrapDiff(o.z - c.z, len);
-      if (dz > -1300 && dz < 3000 && Math.abs(o.x - l) < 0.45) { free = false; break; }
+      if (dz > -2400 && dz < 4100 && Math.abs(o.x - l) < 0.45) { free = false; break; }
     }
     if (free) { c.lane = l; return; }
   }
@@ -245,13 +245,13 @@ export function aiInput(w: World, i: number, cruise = false): Input {
   for (const o of w.cars) {
     if (o === c || o.dnf) continue;
     const dz = wrapDiff(o.z - c.z, t.length), dx = o.x - c.x;
-    if (Math.abs(dz) < 800 && Math.abs(dx) < 0.46) avoid -= Math.sign(dx || (o.idx > c.idx ? 1 : -1)) * (0.46 - Math.abs(dx)) * 3;
+    if (Math.abs(dz) < 1900 && Math.abs(dx) < 0.46) avoid -= Math.sign(dx || (o.idx > c.idx ? 1 : -1)) * (0.46 - Math.abs(dx)) * 3;
     if (dz > 0 && dz < gap && Math.abs(dx) < 0.34) { gap = dz; aheadSpeed = o.speed; }
   }
   const steer = clamp((target - c.x) * 3.5 + need.steer + avoid, -1, 1);
   let targetSp = Math.min(c.skill, curveNeeds(c, cv, w.wet).limit * (0.93 + c.skill * 0.06));
   const closing = c.speed - aheadSpeed;
-  if (gap < 700 + closing * 0.9 && closing > 0) targetSp = Math.min(targetSp, (aheadSpeed / cls.top) * (gap < 750 ? 0.97 : 1));
+  if (gap < 1800 + closing * 0.9 && closing > 0) targetSp = Math.min(targetSp, (aheadSpeed / cls.top) * (gap < 1900 ? 0.97 : 1));
   if (cruise) targetSp = Math.min(targetSp, 0.45);
   let throttle = sp < targetSp ? 1 : 0;
   let brake = sp > targetSp + 0.07 ? 0.7 : 0;
@@ -310,7 +310,7 @@ export function updateDraft(c: Car, w: World) {
     for (const o of w.cars) {
       if (o === c || o.dnf) continue;
       const dz = wrapDiff(o.z - c.z, w.track.length);
-      if (dz > 350 && dz < 3600 && Math.abs(o.x - c.x) < 0.3 && o.speed > c.speed * 0.6) { tow = true; break; }
+      if (dz > 350 && dz < 4700 && Math.abs(o.x - c.x) < 0.3 && o.speed > c.speed * 0.6) { tow = true; break; }
     }
   }
   c.draft = clamp(c.draft + (tow ? DT * 0.9 : -DT * 1.6), 0, 1);
