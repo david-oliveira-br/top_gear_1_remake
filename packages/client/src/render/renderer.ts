@@ -1,7 +1,7 @@
 import { CAR_CLASSES, ROAD_W, SEG_LEN, wrapDiff, type World } from '../../../shared/src/index';
 import { buildAtlas, type Atlas, type SpriteInfo } from '../art/atlas';
 import type { Backdrop } from '../art/backdrops';
-import { CAR_FRAMES, buildCarSheet, carKey } from '../art/cars';
+import { CAR_BASE, FRAME_YAWS, buildCarSheet, carKey } from '../art/cars';
 import type { Look } from './look';
 import { BLUR_FS, BRIGHT_FS, POST_FS, QUAD_VS, ROAD_FS, ROAD_VS, SKY_FS, SPRITE_FS, SPRITE_VS } from './shaders';
 
@@ -270,25 +270,25 @@ export class Renderer {
       const X = this.segX[n] + this.segDX[n] * fr - camX + c.rx * ROAD_W;
       const jit = (c.offroad && c.speed > 800 ? Math.sin(time * 60 + c.idx) * 18 : 0) + Math.sin(time * 80) * c.bump * 60;
       const Y = s.y1 + (s.y2 - s.y1) * fr - camY + jit;
-      const ang = c.steer * 1.25 + Math.max(-1.4, Math.min(1.4, (X / dz) * 2.4));
-      const frame = Math.min(CAR_FRAMES - 1, Math.round(Math.abs(ang) * 2.7));
+      const ang = c.steer * 5.5 + Math.atan2(X, dz) * 57.3 * 0.75 + s.curve * (c.speed / CAR_CLASSES[c.classId].top) * 0.35; // apparent yaw in degrees
+      let frame = 0; for (let k = 1; k < FRAME_YAWS.length; k++) if (Math.abs(Math.abs(ang) - FRAME_YAWS[k]) < Math.abs(Math.abs(ang) - FRAME_YAWS[frame])) frame = k;
       const info = this.carSprites[carKey(c.classId, c.color, frame)];
       if (!info) continue;
       const flip = ang < 0, brake = this.braking.get(c.idx) ?? 0, glow = at.glow, puff = at.puff;
-      const cz = dz, t = time;
+      const cz = dz, t = time, kb = Math.max(0.3, (dz - 1150) / dz), ca = Math.cos((FRAME_YAWS[frame] * Math.PI) / 180); // kb pulls the sprite towards the camera so the road does not clip its tail
       this.list.push({
         z: cz, fn: () => {
-          this.quad(info, X, Y - 40, cz, 1, flip, 1, 1, 1, 1, 2);
+          this.quad(info, X * kb, (Y - CAR_BASE) * kb, cz * kb, kb, flip, 1, 1, 1, 1, 2);
           if (c.draft > 0.25 && c.idx === me.idx) {
             for (let k = 0; k < 6; k++) { const ph = (t * 2.2 + k * 0.17) % 1; this.quad(puff, X + (k % 2 ? 1 : -1) * (520 + k * 60), Y + 250 + Math.sin(k * 3) * 160, cz + 900 - ph * 1500, 0.35, false, 1, 1, 1, c.draft * 0.5 * (1 - Math.abs(ph - 0.5) * 2), 1); }
           }
           if (brake > 0.05 || look.night > 0.3) {
             const a = Math.max(brake * 0.6, look.night * 0.2);
-            for (const sx of [-300, 300]) this.quad(glow, X + sx, Y + 175, cz - 5, 0.75, false, 1, 0.12, 0.08, a, 1);
+            for (const sx of [-225, 225]) this.quad(glow, (X + sx * ca) * kb, (Y + 90) * kb, cz * kb - 5, 0.7 * kb, false, 1, 0.12, 0.08, a, 1);
           }
           if (c.nitroT > 0) {
             const fl = 0.75 + 0.25 * Math.sin(t * 90 + c.idx);
-            for (const sx of [-170, 170]) { this.quad(glow, X + sx, Y + 20, cz - 6, 2.2 * fl, false, 0.3, 0.6, 1, 1, 1); this.quad(glow, X + sx, Y + 60, cz - 7, 1.1, false, 1, 1, 1, 1, 1); }
+            for (const sx of [-230, 230]) { this.quad(glow, (X + sx * ca) * kb, (Y - 110) * kb, cz * kb - 6, 2.2 * fl * kb, false, 0.3, 0.6, 1, 1, 1); this.quad(glow, (X + sx * ca) * kb, (Y - 100) * kb, cz * kb - 7, 1.1 * kb, false, 1, 1, 1, 1, 1); }
           }
           const dusty = c.offroad && c.speed > 1200, spray = look.rain > 0 && c.speed > 3000;
           if (dusty || spray) {
@@ -296,7 +296,7 @@ export class Renderer {
               const ph = (t * 3 + k * 0.25 + c.idx * 0.37) % 1;
               const px = X + (k % 2 ? 300 : -300) + Math.sin(k * 5 + c.idx) * 120;
               const col = dusty ? (look.snowy ? 1 : 0.62) : 0.9;
-              this.quad(puff, px, Y + ph * 260 - 40, cz - 8 - ph * 2, 0.8 + ph * 1.6, false, col, col * (dusty && !look.snowy ? 0.85 : 1), col * (dusty && !look.snowy ? 0.65 : 1), (1 - ph) * (dusty ? 0.6 : 0.3), 0);
+              this.quad(puff, px, Y + ph * 260 - 200, cz - 700 - ph * 2, 0.8 + ph * 1.6, false, col, col * (dusty && !look.snowy ? 0.85 : 1), col * (dusty && !look.snowy ? 0.65 : 1), (1 - ph) * (dusty ? 0.6 : 0.3), 0);
             }
           }
         },

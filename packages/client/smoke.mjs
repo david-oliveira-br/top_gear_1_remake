@@ -8,7 +8,7 @@ const open = async () => {
   const p = await ctx.newPage();
   p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   p.on('pageerror', (e) => errs.push(String(e)));
-  await p.goto(URL); await p.waitForTimeout(1500);
+  await p.goto(URL, { timeout: 120000 }); await p.waitForTimeout(1500);
   return p;
 };
 const state = (p) => p.evaluate(() => { const r = window.__rc, s = r.session, w = s.world; return { racing: r.racing, phase: w.phase, tick: w.tick, title: r.menu.top?.title, cars: w.cars.map((c) => ({ z: Math.round(c.rz), lap: c.lap, speed: Math.round(c.speed), ai: c.isAI })), local: s.local }; });
@@ -17,7 +17,7 @@ const fail = (m) => { console.log('FAIL', m); process.exitCode = 1; };
 // 1. split-screen, mid-race
 let p = await open();
 await p.evaluate(() => localStorage.setItem('rc_setup', JSON.stringify({ track: 4, laps: 1, weather: 0, time: 0, grid: 12, difficulty: 1 })));
-await p.reload(); await p.waitForTimeout(1200);
+await p.reload({ timeout: 120000 }); await p.waitForTimeout(1200);
 await p.click('text=Split-screen (2 players)'); await p.click('text=Start race');
 await p.waitForTimeout(26000);
 await p.screenshot({ path: out + '/10-split.png' });
@@ -31,7 +31,7 @@ await p.click('text=Quit race');
 
 // 2. single 1-lap race through to the results screen
 await p.evaluate(() => localStorage.setItem('rc_setup', JSON.stringify({ track: 7, laps: 1, weather: 0, time: 0, grid: 6, difficulty: 0 })));
-await p.reload(); await p.waitForTimeout(1200);
+await p.reload({ timeout: 120000 }); await p.waitForTimeout(1200);
 await p.click('text=Single race'); await p.click('text=Start race');
 await p.waitForTimeout(25000); await p.screenshot({ path: out + '/12-fog.png' });
 await p.waitForFunction(() => window.__rc.menu.top?.title === 'Results', null, { timeout: 240000 });

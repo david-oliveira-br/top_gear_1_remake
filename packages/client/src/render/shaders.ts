@@ -84,7 +84,7 @@ void main(){
   float d=vCam.z/9500.;
   float lat=abs(vCam.x)/(1700.+vCam.z*0.42);
   float hl=uHead*(1.-smoothstep(0.35,1.,d))*(1.-smoothstep(0.55,1.,lat));
-  vec3 lit=t.rgb*vCol.rgb*(uAmb+vec3(1.,0.95,0.8)*hl)+em.rgb*uNight*1.5;
+  vec3 lit=t.rgb*vCol.rgb*(uAmb*(1.+0.35*isCar*uNight)+vec3(1.,0.95,0.8)*hl*(1.-0.6*isCar))+em.rgb*uNight*1.5;
   lit=mix(lit,uFog*t.a,fog);
   o=vec4(lit*vCol.a,t.a*vCol.a);
   if(o.a<0.004) discard;

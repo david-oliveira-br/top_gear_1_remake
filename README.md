@@ -30,7 +30,7 @@ For internet play, host that process anywhere that allows WebSockets and share t
 
 ## Driving
 
-- **Showroom** – pick one of four cars (speed, acceleration, grip and fuel range differ), a colour and the gearbox.
+- **Showroom** – pick one of four cars (speed, acceleration, grip and fuel range differ), a colour and the gearbox. The car is a live 3D model; drag it with the mouse to spin it.
 - **Perfect start** – during the lights, hold the revs inside the green band on the dial for a launch boost. Flat out gives wheelspin.
 - **Slipstream** – tuck in behind another car at speed to gain a tow.
 - **Contact** – cars alongside each other only nudge apart; only running into the back of a car costs speed.
@@ -54,7 +54,7 @@ Browsers only expose a controller after a button is pressed on it, and only star
 ## Layout
 
 - `packages/shared` – deterministic 60 Hz simulation, tracks, AI, network protocol (used by client and server)
-- `packages/client` – WebGL2 renderer, procedural sprite art, Web Audio music/engine, input, menus
+- `packages/client` – WebGL2 renderer, procedural art (cars are 3D models baked to sprites), Web Audio synth soundtrack and engine, input, menus
 - `packages/server` – Node WebSocket rooms + static file server
 
 ## Checks
@@ -64,6 +64,7 @@ npm test                 # simulation + server integration (12 scripted clients 
 npm run typecheck
 node packages/client/smoke.mjs <screenshot-dir> <url>   # headless browser run against a running server
 node packages/client/gallery.mjs <screenshot-dir> <url> 0 16 24   # screenshots of the showroom and given track numbers
+node packages/client/audiocheck.mjs <url>                # plays every song and reports output level
 ```
 
 URL flags: `?autopilot` (AI drives your car), `?padtest` (raw controller state), `?lag=150` (simulated network delay in ms).

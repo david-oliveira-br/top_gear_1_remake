@@ -3,7 +3,7 @@ import {
   type Difficulty, type Entry, type Input, type ResultRow, type RoomState, type ServerMsg, type Shift, type TimeOfDay, type Weather, type World,
 } from '../../shared/src/index';
 import { buildBackdrop } from './art/backdrops';
-import { carThumb, showroomImage } from './art/cars';
+import { carThumb, drawShowroom } from './art/cars';
 import { GameAudio } from './audio/audio';
 import { RACE_SONGS, SONGS as SONG_DATA } from './audio/songs';
 import { LocalSession, NetSession, type Session } from './game/session';
@@ -128,17 +128,21 @@ function statBars(classId: number) {
     <span>Grip</span>${bar((c.grip - 0.8) / 0.35)}<span>Fuel range</span>${bar(c.tank / 2.3e6)}</div>`;
 }
 function carCard(p: Profile) {
-  return `<div class="cars"><img src="${carThumb(p.classId, p.color)}" width="153" height="96" alt="">${statBars(p.classId)}</div>`;
+  return `<div class="cars"><img src="${carThumb(p.classId, p.color)}" alt="">${statBars(p.classId)}</div>`;
 }
+let showP: Profile | null = null, showYaw = 2.5, showDrag = 0;
+const showCanvas = document.getElementById('showcanvas') as HTMLCanvasElement;
+showCanvas.addEventListener('pointermove', (e) => { if (e.buttons) { showYaw += e.movementX * 0.012; showDrag = performance.now(); } });
 /** Full-screen car selection. */
 function showroomScreen(p: Profile, who: string, changed: () => void): Screen {
   const done = () => { menu.pop(); if (!racing && audio.current === 'showroom') audio.play('title'); };
   if (!racing) audio.play('showroom');
+  showP = p;
   const step = (f: () => void) => () => { f(); changed(); };
   return {
     title: who ? `${who} · choose your car` : 'Choose your car', wide: true, back: done,
     sub: () => `${CAR_CLASSES[p.classId].name} — ${CAR_CLASSES[p.classId].blurb}`,
-    body: () => `<img class="showcar" src="${showroomImage(p.classId, p.color)}" alt="">${statBars(p.classId)}`,
+    body: () => `<div id="showslot"></div>${statBars(p.classId)}`,
     items: [
       { label: 'Car', value: () => `${CAR_CLASSES[p.classId].name}  (${p.classId + 1}/4)`, left: step(() => (p.classId = cyc(p.classId, 4, -1))), right: step(() => (p.classId = cyc(p.classId, 4, 1))) },
       { label: 'Colour', value: () => COLOR_NAMES[p.color], left: step(() => (p.color = cyc(p.color, 12, -1))), right: step(() => (p.color = cyc(p.color, 12, 1))) },
@@ -483,6 +487,14 @@ function frame() {
     if (menu.open) menu.nav(n === 'pause' ? 'back' : n);
     else if (racing && (n === 'pause' || n === 'back')) { paused = !session?.online; menu.push(pauseScreen()); }
   }
+  // live 3D car in the showroom
+  const slot = menu.top?.title.endsWith('choose your car') || menu.top?.title === 'Choose your car' ? document.getElementById('showslot') : null;
+  if (slot && showP) {
+    const r = slot.getBoundingClientRect();
+    Object.assign(showCanvas.style, { display: 'block', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    if (performance.now() - showDrag > 1500) showYaw += dt * 0.45;
+    drawShowroom(showCanvas, showP.classId, showP.color, showYaw);
+  } else if (showCanvas.style.display !== 'none') showCanvas.style.display = 'none';
   if (padtest) padtest.textContent = input.pads().map((p) => `${p.index}: ${p.id}\n axes ${p.axes.map((a) => a.toFixed(2)).join(' ')}\n btns ${p.buttons.map((b, i) => (b.value > 0.05 ? i + ':' + b.value.toFixed(1) : '')).filter(Boolean).join(' ')}`).join('\n') || 'no gamepad';
 
   if (session) {
@@ -509,4 +521,4 @@ menu.reset(titleScreen());
 startAttract();
 requestAnimationFrame(frame);
 // debugging / automated tests
-(window as any).__rc = { get session() { return session; }, get racing() { return racing; }, menu, settings };
+(window as any).__rc = { get session() { return session; }, get racing() { return racing; }, menu, settings, audio };
