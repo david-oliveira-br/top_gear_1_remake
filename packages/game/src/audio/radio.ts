@@ -11,7 +11,7 @@ export const CUSTOM = 'custom';
 
 /** Internet radio player. Falls back to the built-in soundtrack through `onFail` when the stream cannot play. */
 export class Radio {
-  el: HTMLAudioElement | null = null; url = ''; name = ''; playing = false; error = ''; station = STATIONS[0].id; onFail: (() => void) | null = null; private timer = 0;
+  el: HTMLAudioElement | null = null; url = ''; name = ''; playing = false; error = ''; detail = ''; station = STATIONS[0].id; onFail: (() => void) | null = null; private timer = 0;
   private analyser: AnalyserNode | null = null; private gain: GainNode | null = null; private buf = new Uint8Array(64); private avg = 0;
   volume = 0.7; onChange: (() => void) | null = null;
   constructor() {
@@ -31,7 +31,7 @@ export class Radio {
     const start = (cors: boolean) => {
       const el = (this.el = new Audio()); if (cors) el.crossOrigin = 'anonymous'; el.src = this.url; el.preload = 'none'; el.volume = cors ? 1 : this.volume;
       el.onplaying = () => { clearTimeout(this.timer); this.playing = true; this.error = ''; this.onChange?.(); };
-      el.onerror = () => { if (this.el !== el) return; if (cors) { start(false); return; } this.fail(); };
+      el.onerror = () => { if (this.el !== el) return; this.detail = 'erro ' + (el.error?.code ?? '?') + (cors ? ' (com análise)' : ''); if (cors) { start(false); return; } this.fail(); };
       if (cors && ctx && out) {
         try { const src = ctx.createMediaElementSource(el); this.gain = ctx.createGain(); this.gain.gain.value = this.volume; this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 128; src.connect(this.analyser); this.analyser.connect(this.gain); this.gain.connect(out); }
         catch { this.analyser = null; this.gain = null; }
@@ -39,9 +39,9 @@ export class Radio {
       void el.play().catch(() => { if (this.el === el && !cors) { this.error = 'Clique para liberar o áudio'; this.onChange?.(); } });
     };
     start(true);
-    clearTimeout(this.timer); this.timer = window.setTimeout(() => { if (!this.playing && this.el) this.fail(); }, 9000); // no sound after 9 s: give up
+    clearTimeout(this.timer); this.timer = window.setTimeout(() => { if (!this.playing && this.el) { this.detail ||= 'sem resposta em 15 s'; this.fail(); } }, 15000); // no sound after 15 s: give up
   }
-  private fail() { clearTimeout(this.timer); this.stop(); this.error = 'Rádio fora do ar — tocando a trilha do jogo'; this.onChange?.(); this.onFail?.(); }
+  private fail() { clearTimeout(this.timer); this.stop(); this.error = 'Rádio indisponível — tocando a trilha do jogo'; this.onChange?.(); this.onFail?.(); }
   stop() { clearTimeout(this.timer); if (this.el) { const e = this.el; this.el = null; e.onerror = null; e.pause(); e.removeAttribute('src'); e.load(); } this.gain?.disconnect(); this.gain = null; this.analyser = null; this.playing = false; this.onChange?.(); }
   setVolume(v: number) { this.volume = v; if (this.gain) this.gain.gain.value = v; else if (this.el) this.el.volume = v; this.save(); }
   /** Lower the music briefly (race start, crashes). k = 0..1 */

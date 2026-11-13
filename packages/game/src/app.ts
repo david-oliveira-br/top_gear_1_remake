@@ -44,7 +44,7 @@ export class App {
     addEventListener('pointermove', (e) => { if (this.drag) this.orbit += e.movementX * 0.006; });
     this.radio.onChange = () => this.radioChip();
     this.radio.onFail = () => { this.radioDown = true; this.audio.play(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
-    loading.remove();
+    this.musicBar(); loading.remove();
     if (this.q.get('hideui')) this.ui.style.display = 'none'; // capture helpers: ?hideui=1&orbit=<radians>
     if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
     const go = this.q.get('go');
@@ -62,7 +62,22 @@ export class App {
     if (this.settings.radioOn && this.radio.url && !this.radioDown) { this.audio.stopMusic(); if (!this.radio.el) this.radio.play(this.audio.ctx, this.audio.master); }
     else { this.radio.stop(); this.audio.play(name); }
   }
-  private radioDown = false;
+  private radioDown = false; private bar!: HTMLElement; private barT = 0;
+  /** Always-visible music status, with a button to start audio when the browser has not allowed it yet. */
+  private musicBar() {
+    this.bar = h('div.musicbar'); document.body.append(this.bar);
+    const draw = () => {
+      const a = this.audio, r = this.radio, ok = !!a.ctx && a.ctx.state === 'running';
+      let text = '', btn = '';
+      if (!ok) { text = '♪ Música desligada pelo navegador'; btn = '▶ Ativar música'; }
+      else if (!this.settings.radioOn || this.radioDown) text = '♪ Trilha do jogo' + (r.error ? ' · ' + r.error + (r.detail ? ' (' + r.detail + ')' : '') : '');
+      else if (r.playing) text = '♪ ' + r.name + ' · ao vivo';
+      else text = '♪ Conectando à rádio…';
+      const key = text + btn; if (this.bar.dataset.k === key) return; this.bar.dataset.k = key;
+      this.bar.replaceChildren(text, ...(btn ? [h('button.pri', { onclick: () => { a.unlock(); void a.ctx?.resume(); this.radioDown = false; this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); } }, btn)] : []));
+    };
+    setInterval(() => { draw(); this.bar.style.display = this.screen === 'race' && this.radio.playing && this.audio.ctx?.state === 'running' ? 'none' : ''; }, 400); draw();
+  }
   private radioChip() { const el = this.hud.radio; if (el) el.textContent = this.radio.playing ? '♪ ' + this.radio.name + (this.radio.current ? ' · metal gerado por IA' : '') : this.radio.error ? '♪ ' + this.radio.error : this.settings.radioOn ? '♪ Conectando à rádio…' : '♪ Trilha Redline'; }
   private topBar(title: string, back: () => void, extra: HTMLElement[] = []) {
     return h('div.top', null, h('h2', null, title), h('div.chip', { html: `Reputação <b>${this.career.rep}</b>` }), h('div.chip', { html: `<b>${money(this.career.money)}</b>` }), ...extra, h('button', { onclick: back }, 'Voltar'));
