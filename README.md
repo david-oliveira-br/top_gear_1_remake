@@ -7,6 +7,8 @@ vertical: Rio de Janeiro, um carro, cinco eventos.
 Tudo é original: carro, pista, nomes e trilha. Os assets de céu, texturas e contornos do mapa são de domínio
 público (ver `packages/game/public/assets/CREDITS.md`).
 
+Exceção: o carro do jogador é o "Car Concept" de Eric Chadwick (Darmstadt Graphics Group GmbH) para o Khronos Group, 2024, a partir de um modelo de domínio público de Unity Fan — licença [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), fonte <https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept>. Modificado: logotipos (Khronos, 3D Commerce) e placa removidos/substituídos, peças internas ocultadas, pintura, rodas e faróis recoloridos em tempo de execução. A licença exclui logotipos e marcas; nenhum é exibido.
+
 ## Rodar
 
 ```bash

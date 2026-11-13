@@ -27,10 +27,11 @@ export interface Tuning { /** final drive scale: <1 longer gearing, >1 shorter *
 export const defaultTuning = (): Tuning => ({ gearing: 1, wing: 0.5, bias: 0.62 });
 
 export const BASE: CarSpec = {
-  mass: 1380, wheelbase: 2.54, cgFront: 1.22, cgHeight: 0.52, inertia: 2100,
-  wheelR: 0.31, halfW: 0.94, halfL: 2.21,
+  // dimensions measured from the Car Concept model (wheelbase 2.80 m, rolling radius 0.384 m, body 2.26 m wide incl. tyres, 4.36 m long); cgFront stays 48% of the wheelbase
+  mass: 1380, wheelbase: 2.8, cgFront: 1.344, cgHeight: 0.52, inertia: 2100,
+  wheelR: 0.384, halfW: 1.13, halfL: 2.18,
   torque: 350, redline: 7400, idle: 950, boost: 0, lag: 0.45,
-  gears: [3.25, 2.05, 1.48, 1.14, 0.92, 0.77], final: 3.7, shiftTime: 0.28, eff: 0.88,
+  gears: [3.25, 2.05, 1.48, 1.14, 0.92, 0.77], final: 4.58, /* 3.7 at the old 0.31 m wheel radius: scaled by the radius ratio so speeds and acceleration are unchanged */ shiftTime: 0.28, eff: 0.88,
   mu: 1.08, brake: 10500, brakeBias: 0.62,
   cda: 0.74, cla: 0.35,
   nitroPower: 90000, nitroTank: 2.5,

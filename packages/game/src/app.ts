@@ -43,7 +43,10 @@ export class App {
     this.world = makeRio(this.eng, this.track); await this.world.build(); this.worlds.set('rio', { world: this.world, track: this.track }); this.showWorld('rio');
     this.globe = new Globe(this.eng);
     await preloadCars();
-    this.show = new CarVisual(); this.eng.scene.add(this.show.group); this.refreshCar();
+    this.show = new CarVisual(0, true); this.eng.scene.add(this.show.group); this.refreshCar();
+    // capture helper: window.__carTris() counts the triangles of the visible car meshes (one pass, no shadows)
+    (window as any).__carTris = () => { const out: Record<string, number> = {}; const count = (g: THREE.Object3D) => { let n = 0; g.traverseVisible((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const gm = m.geometry; n += (gm.index ? gm.index.count : gm.attributes.position.count) / 3; } }); return n; };
+      if (this.screen === 'garage') out.garage = count(this.show.group); this.session?.visuals.forEach((v, i) => (out['car' + i] = count(v.group))); return out; };
     const unlock = () => { this.audio.unlock(); if (this.session) this.weatherSound(this.session.weather); this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
     addEventListener('pointerdown', unlock, { once: true }); addEventListener('keydown', unlock, { once: true });
     const cv = this.eng.canvas;
@@ -63,7 +66,7 @@ export class App {
 
   // ---------- shared helpers ----------
   private clear() { this.ui.replaceChildren(); this.hud = {}; this.labels.clear(); }
-  private look(): Look { const c = this.career; return { paint: this.q.get('paint') ? +this.q.get('paint')! : c.paint, finish: this.q.get('finish') ? +this.q.get('finish')! : c.finish, wheels: c.wheels, aero: c.parts.aero, lower: c.parts.suspension }; }
+  private look(): Look { const c = this.career; return { paint: this.q.get('paint') ? +this.q.get('paint')! : c.paint, finish: this.q.get('finish') ? +this.q.get('finish')! : c.finish, wheels: this.q.get('wheels') ? +this.q.get('wheels')! : c.wheels, aero: c.parts.aero, lower: c.parts.suspension }; }
   private refreshCar() { this.show.setLook(this.look()); }
   private music(name: string) {
     if (!this.audio.ctx) return;
@@ -244,7 +247,8 @@ export class App {
     const c = this.career, auto = this.q.get('auto');
     const lvl = (n: number) => buildSpec({ engine: n, turbo: n, gearbox: n, tyres: n, suspension: n, brakes: n, weight: n, aero: n, nitro: n });
     const entrants: Entrant[] = ev.rivals.map((r) => ({ spec: r.parts ? lvl(r.parts) : BASE, driver: r.driver, name: r.driver.name, paint: r.paint }));
-    const looks: Look[] = ev.rivals.map((r, i) => ({ kind: (i + 1) % 2, paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
+    // the player drives the Car Concept (kind 0); at most three rivals share it (heavy mesh), the rest alternate between the two older coupes
+    const looks: Look[] = ev.rivals.map((r, i) => ({ kind: i % 3 === 0 && i < 9 ? 0 : 1 + (i % 2), paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
     entrants.push({ spec: buildSpec(c.parts, c.tuning), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: c.paint }); looks.push(this.look());
     const wx = this.chosenWeather(ev); this.world.setWeather(wx); this.world.onThunder = (d, p) => this.audio.thunder(d, p); this.weatherSound(wx);
     const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5, wx));
@@ -381,7 +385,9 @@ export class App {
       if (this.orbitAuto) this.orbit += dt * 0.12;
       const g = this.show.group.position, d = this.screen === 'title' ? 7.4 : 6.6, off = this.screen === 'garage' && !this.photo ? 0.9 : this.screen === 'title' ? -1.2 : 0;
       cam.position.set(g.x + Math.cos(this.orbit) * d, g.y + 1.35, g.z + Math.sin(this.orbit) * d); cam.lookAt(g.x, g.y + 0.6, g.z); cam.translateX(off);
-      if (cam.fov !== 40) { cam.fov = 40; cam.updateProjectionMatrix(); }
+      if (cam.fov !== 40 && !this.q.get('gcam')) { cam.fov = 40; cam.updateProjectionMatrix(); }
+      const gc = this.q.get('gcam'); // capture helper: ?gcam=x,y,z,lookX,lookY,lookZ in the garage car's own frame (x left, z forward, y up from the ground)
+      if (gc) { const v = gc.split(',').map(Number), grp = this.show.group; grp.updateWorldMatrix(true, false); cam.position.copy(grp.localToWorld(new THREE.Vector3(v[0], v[1], v[2]))); cam.lookAt(grp.localToWorld(new THREE.Vector3(v[3], v[4], v[5]))); const fv = v[6] || 40; if (cam.fov !== fv) { cam.fov = fv; cam.updateProjectionMatrix(); } }
       eng.blur.value = 0; this.world.update(g);
     }
     this.world.pulse.value = Math.max(this.radio.beat(), this.audio.ctx && !this.radio.playing ? Math.min(1, this.audio.level().rms * 3) : 0);

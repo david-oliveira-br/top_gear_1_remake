@@ -1,12 +1,12 @@
 import * as THREE from 'three/webgpu';
 import { texture, uv, mix, vec3, float, uniform, step, max, bumpMap, positionLocal, mx_noise_float, fract, floor, smoothstep } from 'three/tsl';
 import { buildBody, SHAPES, type BodyParts } from './body';
-import { carKit, cockpitScene, COCKPIT_HEAD, defaultAnchors, type CarAnchors, type CarKit } from './glb';
+import { carKit, cockpitScene, COCKPIT_HEAD, defaultAnchors, partName, type CarAnchors, type CarKit } from './glb';
 
 export const PAINTS = ['#c8102e', '#f2b01e', '#1565d8', '#0f8f5a', '#e8e8ec', '#141518', '#f05a14', '#7a2bd0', '#12b5c9', '#d81b77', '#8a8f98', '#b9d21a', '#101c3a', '#5a1010'];
 export const FINISHES = ['Metálico', 'Sólido', 'Fosco', 'Perolado'];
 export const WHEELS = ['5 raios', 'Multirraio', 'Turbina'];
-export const CAR_NAMES = ['Sirocco MR', 'Vento GT'];
+export const CAR_NAMES = ['Aurora Concept', 'Sirocco MR', 'Vento GT'];
 
 const std = (color: number, roughness: number, metalness: number) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness });
 let mats: ReturnType<typeof makeCommon> | null = null;
@@ -20,6 +20,22 @@ function makeCommon() {
 }
 const common = () => (mats ??= makeCommon());
 
+/** Car Concept materials shared by every instance: tinted glass and three rim/caliper looks (the model has only Rim1 = face, Rim2 = polished lip, Brake = caliper). */
+interface ConceptShared { glass: THREE.Material; rim1: THREE.Material[]; rim2: THREE.Material[]; brake: THREE.Material[]; }
+let cshared: ConceptShared | null = null;
+function conceptShared(root: THREE.Object3D): ConceptShared {
+  if (cshared) return cshared;
+  const by: Record<string, THREE.MeshPhysicalMaterial> = {}; root.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshPhysicalMaterial | undefined; if ((o as THREE.Mesh).isMesh && m && !Array.isArray(m)) by[m.name] = m; });
+  const mk = (n: string, f: (m: THREE.MeshPhysicalMaterial) => void) => { const m = by[n].clone(); f(m); return m; };
+  const glass = new THREE.MeshPhysicalNodeMaterial({ color: 0x05080b, roughness: 0.03, metalness: 0, transparent: true, opacity: 0.78, depthWrite: false, clearcoat: 1, clearcoatRoughness: 0, side: THREE.DoubleSide });
+  return (cshared = {
+    glass,
+    rim1: [mk('Rim1', () => {}), mk('Rim1', (m) => m.color.set('#0b0b0c')), mk('Rim1', (m) => m.color.set('#17120a'))],
+    rim2: [mk('Rim2', () => {}), mk('Rim2', (m) => { m.color.set('#3a3d44'); m.roughness = 0.22; }), mk('Rim2', (m) => { m.color.set('#d9a93c'); m.roughness = 0.2; })],
+    brake: [mk('Brake', () => {}), mk('Brake', (m) => m.color.set('#e0b010')), mk('Brake', (m) => m.color.set('#1d1d20'))],
+  });
+}
+
 /** One car on screen: body, glass, cabin, wheels, lamps. Pose it with `place` every frame. */
 export class CarVisual {
   group = new THREE.Group(); body = new THREE.Group(); parts!: BodyParts;
@@ -29,11 +45,15 @@ export class CarVisual {
   private glb = false; private glbWheels: THREE.Group[] = []; private wheelR = 0.335;
   /** camera anchors (car space) and the glass meshes, which the cockpit view hides */
   anchors: CarAnchors = defaultAnchors(); private glass: THREE.Object3D[] = []; private bodyOff = new THREE.Vector3(); private carHead = new THREE.Vector3(); private shell: THREE.Object3D[] = []; private interior: THREE.Object3D | null = null; private wheelNode: THREE.Object3D | null = null;
+  private concept = false; private hero = false; private interiorMeshes: THREE.Object3D[] = []; private steerPivot: THREE.Object3D | null = null; private steerAxis = new THREE.Vector3();
+  private p1: THREE.MeshPhysicalMaterial | null = null; private p2: THREE.MeshPhysicalMaterial | null = null; private tail: THREE.MeshPhysicalMaterial | null = null; private head: THREE.MeshPhysicalMaterial | null = null; private sig: THREE.MeshPhysicalMaterial | null = null;
+  private cRim1: THREE.Mesh[] = []; private cRim2: THREE.Mesh[] = []; private cBrake: THREE.Mesh[] = []; private pearlOn = false; private coatOn = true; private shared: ConceptShared | null = null;
   private spin = 0; private pitch = 0; private roll = 0; private heave = 0; private baseY = 0;
 
-  /** kind: 0 mid-engine supercar, 1 grand tourer */
-  constructor(kind = 0) {
+  /** kind: 0 Car Concept, 1 1990s coupe, 2 1980s car (procedural bodies if a model failed to load). `hero`: the player's car or the garage car, which keeps its brake calipers and, in the cockpit view, its interior. */
+  constructor(kind = 0, hero = false) {
     const kit = carKit(kind);
+    if (kit?.concept) { this.glb = true; this.concept = true; this.hero = hero; this.buildConcept(kit); return; }
     if (kit) { this.glb = true; this.buildGlb(kit); return; }
     const p = (this.parts = buildBody(SHAPES[kind % SHAPES.length])), c = common(); this.wheelR = p.shape.wheelR;
     const m = new THREE.MeshPhysicalNodeMaterial({ side: THREE.DoubleSide });
@@ -94,10 +114,64 @@ export class CarVisual {
     this.body.add(scene); inner.add(this.body); this.group.rotation.order = 'YXZ';
     // wheels hang off `group`, the body (inner) rolls separately
   }
+
+  /** Car Concept (Khronos glTF sample, CC BY 4.0): recolour the two paint materials, drive the lamp materials, rebuild the wheels so they spin and steer, and hide whatever the render budget cannot afford. */
+  private buildConcept(kit: CarKit) {
+    const k = kit.concept!; this.wheelR = kit.wheelR; this.anchors = { head: kit.anchors.head.clone(), hood: kit.anchors.hood.clone(), bumper: kit.anchors.bumper.clone() }; this.carHead = kit.anchors.head.clone(); this.parts = { shape: { wheelR: kit.wheelR } } as BodyParts;
+    const scene = kit.scene.clone(true), inner = new THREE.Group(); inner.position.set(0, -kit.groundY, -kit.midZ); this.group.add(inner); this.bodyOff.copy(inner.position);
+    scene.updateMatrixWorld(true);
+    const sh = (this.shared = conceptShared(kit.scene));
+    const clone = (m: THREE.Material) => m.clone() as THREE.MeshPhysicalMaterial;
+    const SMALL = /^(BodyDoor[LR](Handle0[12]|WindowGasket)|BodyWindshieldGasket)$/; // draw calls a rival's silhouette does not need
+    const NEVER = /^(BodyWindshieldWipers|BodyWindshieldWipersBase|Engine|BodyHoodInterior0[12]|BodyHoodUnder)$/, CABIN_LITE = /^(InteriorFloor|InteriorDashMid|InteriorDashSides)$/;
+    const wheelNodes = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR'].map((n) => { let f!: THREE.Object3D; scene.traverse((c) => { if (c.name === n) f = c; }); return f; });
+    const own = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+    const mine = (m: THREE.MeshPhysicalMaterial) => { let o = own.get(m); if (!o) own.set(m, (o = clone(m))); return o; };
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh; if (!mesh.isMesh) return;
+      const src = mesh.material as THREE.MeshPhysicalMaterial, pn = partName(o), inWheel = wheelNodes.some((w) => w.getObjectById(o.id));
+      mesh.castShadow = false; mesh.receiveShadow = true;
+      if (NEVER.test(pn) || (!this.hero && SMALL.test(pn))) { mesh.visible = false; return; }
+      if (/^Interior/.test(pn)) { if (!CABIN_LITE.test(pn)) { mesh.visible = false; this.interiorMeshes.push(mesh); } return; }
+      switch (src.name) {
+        case 'Paint 1 Carmine': mesh.material = this.p1 ??= mine(src); mesh.castShadow = true; break;
+        case 'Paint 2 Carmine': mesh.material = this.p2 ??= (() => { const m = mine(src); return m; })(); mesh.castShadow = true; break;
+        case 'Glass': mesh.material = sh.glass; mesh.renderOrder = 2; mesh.receiveShadow = false; this.glass.push(mesh); break;
+        case 'Brakelight': mesh.material = this.tail ??= mine(src); break;
+        case 'Headlight': mesh.material = this.head ??= mine(src); break;
+        case 'Signallight': mesh.material = this.sig ??= mine(src); break;
+        case 'Rim1': this.cRim1.push(mesh); break;
+        case 'Rim2': this.cRim2.push(mesh); break;
+        case 'Brake': this.cBrake.push(mesh); if (!this.hero) mesh.visible = false; break;
+        case 'Tiretread': case 'Tireside': mesh.castShadow = true; break;
+        default: if (!inWheel) mesh.castShadow = /^Body(Panels|Pillars|Rear)/.test(pn);
+      }
+    });
+    // wheels: the model poses its front wheels steered, in odd node frames. Each wheel's parts are moved into pivot (steer) > turn (spin about the car's x axis) > holder (undoes the modelled yaw).
+    wheelNodes.forEach((w, i) => {
+      const hub = k.hubs[i], pivot = new THREE.Group(), turn = new THREE.Group(), holder = new THREE.Group(), padHolder = new THREE.Group(); pivot.position.copy(hub).add(inner.position);
+      const mv = (c: THREE.Object3D, to: THREE.Object3D) => { const m = new THREE.Matrix4().makeTranslation(-hub.x, -hub.y, -hub.z).multiply(c.matrixWorld); c.removeFromParent(); to.add(c); m.decompose(c.position, c.quaternion, c.scale); };
+      for (const c of w.children.slice()) mv(c, /BrakePad/.test(c.name) ? padHolder : holder);
+      holder.rotation.y = padHolder.rotation.y = k.axleYaw[i]; turn.add(holder); pivot.add(turn, padHolder); this.group.add(pivot); this.glbWheels.push(pivot); w.removeFromParent();
+    });
+    // steering wheel (cockpit view): everything under InteriorSteeringCylinder turns about the ring's axis
+    let cyl: THREE.Object3D | null = null; scene.traverse((c) => { if (c.name === 'InteriorSteeringCylinder') cyl = c; });
+    if (cyl) { const pv = new THREE.Group(); pv.position.copy(k.steerCentre); scene.add(pv); const m = new THREE.Matrix4().makeTranslation(-k.steerCentre.x, -k.steerCentre.y, -k.steerCentre.z).multiply((cyl as THREE.Object3D).matrixWorld); (cyl as THREE.Object3D).removeFromParent(); pv.add(cyl); m.decompose((cyl as THREE.Object3D).position, (cyl as THREE.Object3D).quaternion, (cyl as THREE.Object3D).scale); this.steerPivot = pv; this.steerAxis.copy(k.steerAxis); this.wheelNode = null; }
+    this.body.add(scene); inner.add(this.body); this.group.rotation.order = 'YXZ';
+  }
+  private setConceptLook(o: { paint: number; finish?: number; wheels?: number; lower?: number }, f: number, w: number) {
+    const p1 = this.p1!, p2 = this.p2!, sh = this.shared!;
+    p1.normalScale.setScalar(0.12); p1.color.set(PAINTS[o.paint % PAINTS.length]); p1.metalness = [0.75, 0.05, 0.3, 0.6][f]; p1.roughness = [0.36, 0.3, 0.62, 0.3][f]; p1.clearcoat = [1, 1, 0, 1][f]; p1.clearcoatRoughness = 0.035;
+    p1.iridescence = f === 3 ? 0.8 : 0; p1.iridescenceIOR = 1.7;
+    p2.color.set(PAINTS[o.paint % PAINTS.length]).multiplyScalar(0.07); p2.metalness = f === 2 ? 0 : 0.5; p2.roughness = f === 2 ? 0.6 : 0.3; p2.clearcoat = f === 2 ? 0 : 0.6;
+    const pearl = f === 3, coat = f !== 2; if (pearl !== this.pearlOn || coat !== this.coatOn) { this.pearlOn = pearl; this.coatOn = coat; p1.needsUpdate = true; p2.needsUpdate = true; }
+    for (const m of this.cRim1) m.material = sh.rim1[w]; for (const m of this.cRim2) m.material = sh.rim2[w]; for (const m of this.cBrake) m.material = sh.brake[w];
+  }
   setLook(o: { paint: number; finish?: number; wheels?: number; aero?: number; lower?: number }) {
     this.paint.value.set(PAINTS[o.paint % PAINTS.length]).convertSRGBToLinear();
     const f = o.finish ?? 0, w = (o.wheels ?? 0) % 3, c = common();
     this.metal.value = [0.75, 0.05, 0.3, 0.6][f]; this.rough.value = [0.36, 0.3, 0.62, 0.3][f]; this.coat.value = [1, 1, 0, 1][f]; this.flake.value = [1, 0, 0.3, 0.6][f]; this.pearl.value = f === 3 ? 1 : 0;
+    if (this.concept) { this.setConceptLook(o, f, w); this.baseY = -0.012 * (o.lower ?? 0); return; }
     if (this.glb) { this.baseY = -0.012 * (o.lower ?? 0); return; }
     for (const r of this.rims) { r.geometry = this.parts.wheel.rims[w]; r.material = c.rim[w]; }
     for (const q of this.calipers) q.material = c.caliper[w];
@@ -111,15 +185,19 @@ export class CarVisual {
     this.heave += ((Math.abs(o.ax) + Math.abs(o.ay)) * -0.0012 - this.heave) * k;
     g.position.set(x, y, z); g.rotation.set(-Math.atan(o.gradF), Math.PI / 2 - yaw, -Math.atan(o.gradR));
     this.body.rotation.set(this.pitch, 0, this.roll); this.body.position.y = this.baseY + this.heave;
+    this.brake.value += (o.brake - this.brake.value) * Math.min(1, o.dt * 20);
     this.spin += (o.speed / this.wheelR) * o.dt;
     const ws = this.glb ? this.glbWheels : this.wheels;
     for (let i = 0; i < 4; i++) { const w = ws[i]; w.children[0].rotation.x = this.spin; w.rotation.y = (this.glb ? i < 2 : i >= 2) ? -o.steer : 0; }
     if (this.wheelNode) this.wheelNode.rotation.z = o.steer * 1.5;
-    this.brake.value += (o.brake - this.brake.value) * Math.min(1, o.dt * 20); this.lamps.value = o.lamps ?? 1;
+    if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, o.steer * 4);
+    if (this.concept) { const l = o.lamps ?? 1; if (this.tail) this.tail.emissiveIntensity = 0.3 + l * 0.9 + this.brake.value * 7; if (this.head) this.head.emissiveIntensity = 0.4 + l * 6; if (this.sig) this.sig.emissiveIntensity = 0.1 + l * 0.6; return; }
+    this.lamps.value = o.lamps ?? 1;
   }
   /** Hide the glass for the driver's own view from inside. */
   setCockpit(on: boolean) {
     for (const g of this.glass) g.visible = !on;
+    if (this.concept) { if (this.hero) for (const m of this.interiorMeshes) m.visible = on; return; } // the model's own interior, drawn only now
     if (on && !this.interior && this.glb) { // the dashboard-and-wheel interior replaces the model's own cabin while we sit in it
       const i = cockpitScene(); if (i) { i.position.copy(this.bodyOff).negate(); this.body.add(i); this.interior = i; i.traverse((o) => { if (o.name.endsWith('_steering_wheel')) this.wheelNode = o; const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = false; this.tone(m); } }); }
     }

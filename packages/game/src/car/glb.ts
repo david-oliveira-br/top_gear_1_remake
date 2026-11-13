@@ -8,12 +8,15 @@ export interface CarKit {
   paint: THREE.MeshStandardMaterial | null; glass: THREE.Material | null;
   /** camera anchors in car space: origin on the ground under the axle midpoint, +z forward, +y up, +x left */
   anchors: CarAnchors;
+  /** only for the Car Concept: hub positions (scene space), the yaw each wheel node's axle is off the car's x axis, and the steering wheel's centre/axis */
+  concept?: { hubs: THREE.Vector3[]; axleYaw: number[]; steerCentre: THREE.Vector3; steerAxis: THREE.Vector3 };
 }
 export interface CarAnchors { head: THREE.Vector3; hood: THREE.Vector3; bumper: THREE.Vector3; }
 /** Anchors for the procedural bodies, which have no mesh to measure. */
 export const defaultAnchors = (): CarAnchors => ({ head: new THREE.Vector3(0.36, 1.02, -0.15), hood: new THREE.Vector3(0, 1.02, 0.35), bumper: new THREE.Vector3(0, 0.5, 2.1) });
 
-export const CAR_FILES = ['1990s-sports-car', '1980s-sports-car'];
+/** kind 0 is the Car Concept (the player's car); kinds 1 and 2 are the older CC0 coupes used by rivals */
+export const CAR_FILES = ['CarConcept', '1990s-sports-car', '1980s-sports-car'];
 const kits = new Map<number, CarKit>();
 
 const track = (pos: THREE.Vector3[]) => Math.abs(pos[0].x - pos[1].x);
@@ -46,12 +49,73 @@ function measure(root: THREE.Group): CarKit | null {
   return { anchors, scene: root, wheels: w, wheelR, wheelbase, track: Math.abs(pos[0].x - pos[1].x), halfW: Math.max(bb.max.x, -bb.min.x), halfL: (bb.max.z - bb.min.z) / 2, midZ, groundY: pos[0].y - wheelR, paint, glass };
 }
 
-/** Load both models once. Failures leave the kit missing so callers fall back to the procedural body. */
+
+/** Plain Brazilian-style plate: the model's own texture carries the Khronos logo, which the licence excludes, so it is never used. */
+function plateTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 160; const g = c.getContext('2d')!;
+  g.fillStyle = '#e9e9e4'; g.fillRect(0, 0, 512, 160); g.fillStyle = '#1d3f9a'; g.fillRect(0, 0, 512, 34);
+  g.strokeStyle = '#161616'; g.lineWidth = 6; g.strokeRect(5, 5, 502, 150);
+  g.fillStyle = '#161616'; g.font = 'bold 104px "Rajdhani", "Arial Narrow", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText('RHZ 1A23', 256, 136);
+  const t = new THREE.CanvasTexture(c); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+const flatTexture = (css: string) => { const c = document.createElement('canvas'); c.width = c.height = 8; const g = c.getContext('2d')!; g.fillStyle = css; g.fillRect(0, 0, 8, 8); const t = new THREE.CanvasTexture(c); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; return t; };
+
+/** The model carries Khronos and 3D Commerce logos (CC BY covers the model, not logos or trademarks): plate text, tyre sidewalls (colour and relief), and an emissive "logo" map reused by rims, brake calipers, mirrors and the steering emblem. All are replaced. */
+function scrubLogos(root: THREE.Object3D) {
+  const mats = new Set<THREE.MeshPhysicalMaterial>(); root.traverse((o) => { const m = (o as THREE.Mesh).material; if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) mats.add(x as THREE.MeshPhysicalMaterial); });
+  let plate: unknown = null; for (const m of mats) if (m.name === 'License') { plate = m.map?.image; m.map = plateTexture(); }
+  for (const m of mats) {
+    if (m.emissiveMap && plate && m.emissiveMap.image === plate) { m.emissiveMap = null; m.emissive.setRGB(0, 0, 0); }
+    if (m.name === 'Tireside') {
+      if (m.map) m.map = flatTexture('#1c1c1c');
+      const n = m.normalMap, im = n?.image as ImageBitmap | undefined;
+      if (n && im) {
+        const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d')!; g.drawImage(im, 0, 0);
+        const px = g.getImageData(c.width / 2, c.height / 2, 1, 1).data; g.fillStyle = `rgb(${px[0]},${px[1]},${px[2]})`; const k = c.width / 1024;
+        g.fillRect(0, 330 * k, 112 * k, 340 * k); g.fillRect(940 * k, 410 * k, 84 * k, 210 * k); // Khronos wordmark (left) and 3D Commerce mark (right)
+        const t = new THREE.CanvasTexture(c); t.flipY = false; t.anisotropy = 8; m.normalMap = t;
+      }
+    }
+  }
+}
+
+/** Node name of a mesh: multi-material nodes load as a group holding `mesh_N` children. */
+export const partName = (o: THREE.Object3D) => (/^mesh_\d+/.test(o.name) && o.parent ? o.parent.name : o.name);
+function measureConcept(root: THREE.Group): CarKit | null {
+  scrubLogos(root); root.updateMatrixWorld(true);
+  const find = (s: string) => { let f: THREE.Object3D | null = null; root.traverse((o) => { if (!f && o.name === s) f = o; }); return f as THREE.Object3D | null; };
+  const w = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR'].map(find) as THREE.Object3D[];
+  if (w.some((x) => !x)) return null;
+  const isWheel = (o: THREE.Object3D) => w.some((x) => x === o || x.getObjectById(o.id)) || o.name === 'Axles';
+  const pos = w.map((o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)), box = new THREE.Box3().setFromObject(w[0], true), wheelR = (box.max.y - box.min.y) / 2;
+  const bb = new THREE.Box3(); root.traverse((o) => { if ((o as THREE.Mesh).isMesh && !isWheel(o) && !/Wiper/.test(o.name)) bb.union(new THREE.Box3().setFromObject(o, true)); });
+  const wheelbase = (pos[0].z + pos[1].z) / 2 - (pos[2].z + pos[3].z) / 2, midZ = (pos[0].z + pos[1].z + pos[2].z + pos[3].z) / 4, groundY = pos[0].y - wheelR;
+  // front wheels are modelled steered; the axle of each node, as a yaw about y, is what we must undo
+  const axleYaw = w.map((o) => { const e = o.matrixWorld.elements, a = Math.atan2(e[2], e[0]); return Math.abs(a) > Math.PI / 2 ? a - Math.sign(a) * Math.PI : a; });
+  // steering wheel: centre and axis (the ring's thinnest direction) from its vertices
+  const ring: THREE.Vector3[] = [], v = new THREE.Vector3(); root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /^InteriorSteeringWheel0[12]$/.test(partName(m))) { const p = m.geometry.attributes.position; for (let i = 0; i < p.count; i++) ring.push(v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld).clone()); } });
+  const c = new THREE.Vector3(); for (const p of ring) c.add(p); c.divideScalar(Math.max(1, ring.length));
+  const cov = [0, 0, 0, 0, 0, 0]; for (const p of ring) { const x = p.x - c.x, y = p.y - c.y, z = p.z - c.z; cov[0] += x * x; cov[1] += x * y; cov[2] += x * z; cov[3] += y * y; cov[4] += y * z; cov[5] += z * z; }
+  const tr = cov[0] + cov[3] + cov[5], n = new THREE.Vector3(0.1, 0.5, 1); for (let i = 0; i < 60; i++) { n.set(tr * n.x - (cov[0] * n.x + cov[1] * n.y + cov[2] * n.z), tr * n.y - (cov[1] * n.x + cov[3] * n.y + cov[4] * n.z), tr * n.z - (cov[2] * n.x + cov[4] * n.y + cov[5] * n.z)).normalize(); }
+  if (n.z < 0) n.negate();
+  const mid = new THREE.Vector3(0, groundY, midZ);
+  const rc = new THREE.Raycaster(), meshes: THREE.Object3D[] = []; root.traverse((o) => { if ((o as THREE.Mesh).isMesh && !isWheel(o) && !/Wiper|Interior|Engine/.test(partName(o))) meshes.push(o); });
+  const topAt = (x: number, z: number) => { rc.set(new THREE.Vector3(x, bb.max.y + 1, z), new THREE.Vector3(0, -1, 0)); const h = rc.intersectObjects(meshes, false)[0]; return h ? h.point.y : bb.min.y; };
+  const anchors: CarAnchors = {
+    head: new THREE.Vector3(c.x, c.y + 0.33, c.z - 0.655).sub(mid), // eye of the centre-seat driver, just behind the wheel
+    hood: new THREE.Vector3(0, topAt(0, midZ + wheelbase * 0.3) - groundY + 0.42, wheelbase * 0.12),
+    bumper: new THREE.Vector3(0, 0.5, bb.max.z - midZ - 0.15),
+  };
+  return { anchors, scene: root, wheels: w, wheelR, wheelbase, track: Math.abs(pos[0].x - pos[1].x), halfW: Math.max(bb.max.x, -bb.min.x), halfL: (bb.max.z - bb.min.z) / 2, midZ, groundY, paint: null, glass: null,
+    concept: { hubs: pos, axleYaw, steerCentre: c, steerAxis: n } };
+}
+
+/** Load all models once. Failures leave the kit missing so callers fall back to the procedural body. */
 export async function preloadCars(base = '/') {
   const loader = new GLTFLoader();
   await Promise.all(CAR_FILES.map(async (f, i) => {
     try {
-      const g = await loader.loadAsync(`${base}assets/cars/${f}.glb`), k = measure(g.scene);
+      const g = await loader.loadAsync(`${base}assets/cars/${f}.glb`), k = i === 0 ? measureConcept(g.scene) : measure(g.scene);
       if (k) kits.set(i, k); else console.warn('car model not recognised', f);
     } catch (e) { console.warn('car model failed', f, e); }
   }));
@@ -61,4 +125,4 @@ export async function preloadCars(base = '/') {
 let cockpit: THREE.Group | null = null;
 export const cockpitScene = () => cockpit?.clone(true) ?? null;
 export const COCKPIT_HEAD = new THREE.Vector3(0.37, 0.98, -0.3);
-export const carKit = (kind: number) => kits.get(kind % CAR_FILES.length) ?? null;
+export const carKit = (kind: number) => kits.get(kind) ?? null;
