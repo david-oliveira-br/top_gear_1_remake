@@ -11,3 +11,5 @@ All files in this folder come from [Poly Haven](https://polyhaven.com) and are l
 | rock_face_03_*.jpg | [Rock Face 03](https://polyhaven.com/a/rock_face_03) | Dario Barresi, Rico Cilliers |
 | concrete_wall_008_*.jpg | [Concrete Wall 008](https://polyhaven.com/a/concrete_wall_008) | Dario Barresi, Charlotte Baglioni |
 | ne_110m_land.geojson | [Natural Earth 1:110m land](https://www.naturalearthdata.com) | Natural Earth (domínio público) |
+
+Rádio: [MELODEATH.AI Radio](https://www.ai-metal-radio-station.nl/) — stream de terceiros tocado pelo navegador do jogador; não faz parte deste repositório.

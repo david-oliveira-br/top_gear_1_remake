@@ -42,9 +42,11 @@ Use um navegador recente (Chrome/Edge). Em notebooks com duas placas de vídeo, 
   o rival da cidade. As outras cidades aparecem bloqueadas (fase 2).
 - **Gráficos**: céu HDR, sol com sombras, oclusão ambiente, bloom, desfoque de movimento, pintura com verniz,
   quatro níveis de qualidade.
-- **Som**: motor sintetizado, trilha própria e rádio online — cole em Opções o endereço de stream de uma rádio
-  que permita tocar em sites de terceiros. Nenhuma estação vem pré-configurada: as rádios que consultamos
-  proíbem o uso em jogos sem autorização.
+- **Som**: motor sintetizado e rádio online. A estação padrão é a **MELODEATH.AI Radio** (metal 24h gerado por IA
+  com o Suno, [site](https://www.ai-metal-radio-station.nl/)); em Opções dá para colar outro stream. Se a rádio cair,
+  o jogo volta sozinho para a trilha sintetizada. Atenção: a estação é um projeto sem fins comerciais e não publica
+  termos de uso nem autorização de incorporação; o jogo a trata como audição pessoal. Para publicar ou vender o
+  jogo, peça permissão a `signal@melodeath.ai` ou troque a fonte. As rádios SomaFM e similares proíbem uso em jogos.
 
 ## Estrutura
 

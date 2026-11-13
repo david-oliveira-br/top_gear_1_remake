@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { BASE, CITIES, EVENTS, MAX_LEVEL, PART_IDS, RIO, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
   type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
-import { Radio } from './audio/radio';
+import { CUSTOM, Radio, STATIONS } from './audio/radio';
 import { CAR_NAMES, CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
@@ -43,6 +43,7 @@ export class App {
     cv.addEventListener('pointerdown', () => { this.drag = true; this.orbitAuto = false; }); addEventListener('pointerup', () => (this.drag = false));
     addEventListener('pointermove', (e) => { if (this.drag) this.orbit += e.movementX * 0.006; });
     this.radio.onChange = () => this.radioChip();
+    this.radio.onFail = () => { this.radioDown = true; this.audio.play(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
     loading.remove();
     if (this.q.get('hideui')) this.ui.style.display = 'none'; // capture helpers: ?hideui=1&orbit=<radians>
     if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
@@ -58,10 +59,11 @@ export class App {
   private refreshCar() { this.show.setLook(this.look()); }
   private music(name: string) {
     if (!this.audio.ctx) return;
-    if (this.settings.radioOn && this.radio.url) { this.audio.stopMusic(); if (!this.radio.el) this.radio.play(this.audio.ctx, this.audio.master); }
+    if (this.settings.radioOn && this.radio.url && !this.radioDown) { this.audio.stopMusic(); if (!this.radio.el) this.radio.play(this.audio.ctx, this.audio.master); }
     else { this.radio.stop(); this.audio.play(name); }
   }
-  private radioChip() { const el = this.hud.radio; if (el) el.textContent = this.radio.playing ? '♪ ' + this.radio.name : this.radio.error ? '♪ ' + this.radio.error : '♪ Trilha Redline'; }
+  private radioDown = false;
+  private radioChip() { const el = this.hud.radio; if (el) el.textContent = this.radio.playing ? '♪ ' + this.radio.name + (this.radio.current ? ' · metal gerado por IA' : '') : this.radio.error ? '♪ ' + this.radio.error : this.settings.radioOn ? '♪ Conectando à rádio…' : '♪ Trilha Redline'; }
   private topBar(title: string, back: () => void, extra: HTMLElement[] = []) {
     return h('div.top', null, h('h2', null, title), h('div.chip', { html: `Reputação <b>${this.career.rep}</b>` }), h('div.chip', { html: `<b>${money(this.career.money)}</b>` }), ...extra, h('button', { onclick: back }, 'Voltar'));
   }
@@ -152,15 +154,20 @@ export class App {
     this.screen = 'options'; this.clear(); const s = this.settings, a = this.audio, r = this.radio;
     const url = h<'input'>('input', { type: 'text', placeholder: 'https://… endereço do stream (MP3/AAC)', value: r.url }), nm = h<'input'>('input', { type: 'text', placeholder: 'Nome da rádio', value: r.name });
     const row = (label: string, el: HTMLElement) => h('label.row', null, h('span', null, label), el);
+    const about = h('p', { style: { color: 'var(--dim)', fontSize: '13px', margin: '4px 0 8px' } }), custom = h('div', { style: { display: r.station === CUSTOM ? '' : 'none' } }, url, h('div', { style: { height: '6px' } }), nm);
+    const info = () => { const st = r.current; about.replaceChildren(...(st ? [`${st.note}: ${st.genres}. Faixas geradas por IA (Suno); o projeto é sem fins comerciais e não publica termos de uso, então o jogo a trata como audição pessoal. `, h('a', { href: st.site, target: '_blank', rel: 'noopener', style: { color: 'var(--acc2)' } }, 'Site da rádio'), '.'] : ['Cole o endereço de stream (MP3/AAC) de uma rádio que permita tocar em sites de terceiros.'])); };
+    info();
     this.ui.append(h('div.center.panel', null, h('h2', null, 'Opções'),
       row('Qualidade gráfica', h('select', { onchange: (e: Event) => { s.quality = (e.target as HTMLSelectElement).value; saveSettings(s); location.reload(); } }, ...QUALITIES.map((q) => h('option', { value: q.id, selected: q.id === this.eng.quality.id }, q.label)))),
       row('Câmbio automático', h('input', { type: 'checkbox', checked: s.auto, onchange: (e: Event) => { s.auto = (e.target as HTMLInputElement).checked; saveSettings(s); } })),
       row('Música', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: a.musicVol, oninput: (e: Event) => { a.musicVol = +(e.target as HTMLInputElement).value; a.saveVol(); r.setVolume(a.musicVol); } })),
       row('Efeitos', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: a.sfxVol, oninput: (e: Event) => { a.sfxVol = +(e.target as HTMLInputElement).value; a.saveVol(); } })),
-      h('h3', { style: { marginTop: '14px' } }, 'Rádio online'), h('p', { style: { color: 'var(--dim)', fontSize: '13px', margin: '4px 0 8px' } }, 'Cole o endereço de stream de uma rádio de metal que permita tocar em sites de terceiros. Sem rádio, toca a trilha própria do jogo.'),
-      url, h('div', { style: { height: '6px' } }), nm,
+      h('h3', { style: { marginTop: '14px' } }, 'Rádio online'),
+      row('Estação', h('select', { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v === CUSTOM) { r.station = CUSTOM; } else { r.choose(v); } custom.style.display = v === CUSTOM ? '' : 'none'; info(); } },
+        ...STATIONS.map((st) => h('option', { value: st.id, selected: r.station === st.id }, st.name)), h('option', { value: CUSTOM, selected: r.station === CUSTOM }, 'Outra (colar endereço)'))),
+      about, custom,
       row('Usar rádio', h('input', { type: 'checkbox', checked: s.radioOn, onchange: (e: Event) => { s.radioOn = (e.target as HTMLInputElement).checked; saveSettings(s); } })),
-      h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } }, h('button.pri', { onclick: () => { r.set(url.value, nm.value); r.stop(); this.title(); } }, 'Salvar'), h('button', { onclick: () => { if (confirm('Apagar todo o progresso da carreira?')) { localStorage.removeItem('rh_career'); location.reload(); } } }, 'Zerar carreira'))));
+      h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } }, h('button.pri', { onclick: () => { if (r.station === CUSTOM) r.set(url.value, nm.value); else r.save(); r.stop(); this.radioDown = false; this.title(); } }, 'Salvar'), h('button', { onclick: () => { if (confirm('Apagar todo o progresso da carreira?')) { localStorage.removeItem('rh_career'); location.reload(); } } }, 'Zerar carreira'))));
   }
 
   // ---------- race ----------
