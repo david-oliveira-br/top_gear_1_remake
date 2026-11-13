@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { DT, createRace, noInput, stepRace, type Entrant, type Input, type Race, type Racer, type Track } from '../../../sim/src/index';
+import { DT, WEATHER, createRace, noInput, stepRace, type Entrant, type Input, type Race, type Racer, type Track, type WeatherKind } from '../../../sim/src/index';
 import { CarVisual } from '../car/visual';
 import type { Engine } from '../gfx/engine';
 import type { World } from '../world/base';
+import { LOOK, Spray } from '../world/weather';
 
 export type CamMode = 'chase' | 'far' | 'bumper' | 'hood' | 'cockpit' | 'orbit';
 /** The cycle the C key walks through (orbit is photo mode / results only). */
@@ -20,10 +21,12 @@ export class Session {
   /** recording of the player's path, 4 numbers per tick: x, y, z, yaw */
   record: number[] = []; onTick: ((s: Session) => void) | null = null;
 
-  constructor(private eng: Engine, private world: World, track: Track, entrants: Entrant[], laps: number, looks: Look[], playerIndex: number, seed = 1, rubber = 0.5) {
-    this.race = createRace(track, entrants, laps, seed, rubber); this.player = playerIndex;
+  constructor(private eng: Engine, private world: World, track: Track, entrants: Entrant[], laps: number, looks: Look[], playerIndex: number, seed = 1, rubber = 0.5, public weather: WeatherKind = 'clear') {
+    this.race = createRace(track, entrants, laps, seed, rubber, weather); this.player = playerIndex;
+    if (WEATHER[weather].wet > 0.3) { this.spray = new Spray(entrants.length); this.spray.setLight(Math.min(1, 0.4 + (LOOK[weather].sky?.[0][0] ?? 0.6))); eng.overlay.add(this.spray.mesh); }
     this.race.racers.forEach((r, i) => { const v = new CarVisual(looks[i].kind ?? 0); v.setLook(looks[i]); eng.scene.add(v.group); this.visuals.push(v); this.prev.push([r.car.x, r.car.y, r.car.z, r.car.yaw]); });
   }
+  private spray: Spray | null = null;
   get me(): Racer { return this.race.racers[this.player]; }
   private stride = 1;
   /** `stride`: the path holds one sample every this many ticks. */
@@ -33,7 +36,7 @@ export class Session {
     v.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = false; const mat = (m.material as THREE.Material).clone(); mat.transparent = true; mat.opacity = 0.35; mat.depthWrite = false; m.material = mat; } });
     this.eng.scene.add(v.group);
   }
-  dispose() { for (const v of this.visuals) v.dispose(); this.ghostCar?.dispose(); }
+  dispose() { this.spray?.dispose(); for (const v of this.visuals) v.dispose(); this.ghostCar?.dispose(); }
 
   /** Advance by a frame. `input` drives the player; null lets the AI (or nobody) drive. */
   update(dt: number, input: Input | null) {
@@ -53,13 +56,14 @@ export class Session {
       const c = q.car, p = this.prev[i]; let dy = c.yaw - p[3]; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), k = c.loc.idx, rel = ct * t.tx[k] + st * t.tz[k], relS = -st * t.tx[k] + ct * t.tz[k];
       this.visuals[i].place(p[0] + (c.x - p[0]) * a, p[1] + (c.y - p[1]) * a, p[2] + (c.z - p[2]) * a, p[3] + dy * a, {
-        speed: c.vx, steer: c.steer, ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt });
+        speed: c.vx, steer: c.steer, ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt, lamps: LOOK[this.weather].lamps });
+      this.spray?.emit(i, dt, this.visuals[i].group.position.x, this.visuals[i].group.position.y, this.visuals[i].group.position.z, ct, st, c.vx);
     });
     if (this.ghostCar) {
       const g = this.ghost, k = Math.min(g.length / 4 - 1, Math.max(0, Math.floor(r.tick / this.stride))) * 4; this.ghostCar.group.visible = r.countdown <= 0 && k < g.length - 4;
       if (g.length) this.ghostCar.place(g[k], g[k + 1], g[k + 2], g[k + 3], { speed: 30, steer: 0, ax: 0, ay: 0, gradF: 0, gradR: 0, brake: 0, dt });
     }
-    this.camera(dt);
+    this.camera(dt); this.spray?.update(dt, this.eng.camera);
   }
 
   private camera(dt: number) {

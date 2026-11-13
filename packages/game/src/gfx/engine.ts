@@ -16,6 +16,8 @@ export const QUALITIES: Quality[] = [
 /** Owns the WebGPU renderer and the post-processing chain for one scene + camera. */
 export class Engine {
   renderer: THREE.WebGPURenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(60, 1, 0.3, 6000);
+  /** weather particles live here: drawn in their own pass after the speed blur and AO, so they never disturb those buffers */
+  overlay = new THREE.Scene();
   quality: Quality = QUALITIES[2]; backend = '';
   /** 0..1 strength of the speed blur, and of the vignette */
   blur = uniform(0); vignette = uniform(0.35); exposure = 0.82;
@@ -42,6 +44,8 @@ export class Engine {
       const clean: any = denoise(a.getTextureNode(), scenePass.getTextureNode('depth'), scenePass.getTextureNode('normal'), this.camera);
       col = col.mul(mix(float(1), clean.r, 0.8));
     }
+    const ov: any = pass(this.overlay, this.camera); // premultiplied-alpha layer over the scene
+    col = col.mul(float(1).sub(ov.a)).add(ov.rgb);
     if (q.bloom) col = col.add(bloom(col, 0.16, 0.35, 3.2));
     // filmic finish: gentle vignette and a touch more colour
     const d = screenUV.sub(vec2(0.5)).length();

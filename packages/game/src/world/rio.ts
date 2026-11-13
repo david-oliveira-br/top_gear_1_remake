@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { instanceIndex, triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, attribute, mx_noise_float, normalMap, max } from 'three/tsl';
+import { instanceIndex, triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, attribute, mx_noise_float, normalMap, max, vec4 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Track } from '../../../sim/src/index';
 import type { Engine } from '../gfx/engine';
+import { weatherGround, wetRoad } from './weather';
 import { World, fbm, hash, M, set, sstep, std, vnoise, type WorldDef } from './base';
 
 const dome = (x: number, z: number, cx: number, cz: number, R: number, H: number, p = 0.55) => { const r = Math.hypot(x - cx, z - cz) / R; return r < 1 ? H * Math.pow(1 - r * r, p) : 0; };
@@ -34,8 +35,8 @@ function terrainMaterial() {
     const sandW = float(1).sub(smoothstep(2.3, 3.6, y)), rockW = smoothstep(0.84, 0.6, ny);
     const macro = mx_noise_float(p.div(90)).mul(0.14).add(0.92);
     const gcol = lay(grass, 9, 61).mul(vec3(0.62, 0.78, 0.5)), rcol = triplanarTexture(texture(rock.map), null, null, float(1 / 38)).rgb.mul(vec3(0.62, 0.6, 0.6)).mul(mx_noise_float(vec3(p.div(7), y.div(60))).mul(0.25).add(0.85)), scol = lay(sand, 14, 70).mul(vec3(1.1, 1.02, 0.9));
-    m.colorNode = mix(mix(gcol, scol, sandW), rcol, rockW).mul(macro);
-    m.roughnessNode = mix(mix(texture(grass.rough, p.div(9)).r, texture(sand.rough, p.div(14)).r, sandW), texture(rock.rough, p.div(26)).r, rockW);
+    const wg = weatherGround(mix(mix(gcol, scol, sandW), rcol, rockW).mul(macro), mix(mix(texture(grass.rough, p.div(9)).r, texture(sand.rough, p.div(14)).r, sandW), texture(rock.rough, p.div(26)).r, rockW), ny);
+    m.colorNode = wg.color; m.roughnessNode = wg.rough;
     m.normalNode = normalMap(mix(mix(texture(grass.nor, p.div(9)), texture(sand.nor, p.div(14)), sandW), texture(rock.nor, p.div(26)), rockW));
   return m;
 }
@@ -54,9 +55,11 @@ function roadMaterial(w: World) {
     const kz = attribute('kerb', 'float').mul(smoothstep(hw - 0.02, hw + 0.02, al)).mul(float(1).sub(smoothstep(hw + 1.1, hw + 1.2, al)));
     const kcol = mix(vec3(0.72, 0.05, 0.04), vec3(0.85), step(0.5, fract(s.div(4))));
     const verge = texture(grass.map, vec2(l, s).div(6)).rgb.mul(vec3(0.5, 0.62, 0.4));
-    m.colorNode = mix(mix(mix(verge, base, onRoad), vec3(0.82), paint), kcol, kz);
-    m.roughnessNode = mix(float(0.95), texture(asph.rough, auv).r.mul(0.75).sub(worn.mul(0.5)), onRoad);
-    m.normalNode = normalMap(mix(texture(grass.nor, vec2(l, s).div(6)), texture(asph.nor, auv), onRoad));
+    const gv = weatherGround(verge, float(0.95), float(1), float(1).sub(onRoad));
+    const wr = wetRoad(mix(mix(base, vec3(0.82), paint), kcol, kz), texture(asph.rough, auv).r.mul(0.75).sub(worn.mul(0.5)), onRoad, max(paint, kz), l, s);
+    m.colorNode = mix(gv.color, wr.color, onRoad);
+    m.roughnessNode = mix(gv.rough, wr.rough, onRoad);
+    m.normalNode = normalMap(mix(mix(texture(grass.nor, vec2(l, s).div(6)), texture(asph.nor, auv), onRoad), vec4(0.5, 0.5, 1, 1), wr.flat));
   return m;
 }
 

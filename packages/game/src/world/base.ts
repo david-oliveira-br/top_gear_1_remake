@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { uniform, texture, uv, vec3, float, mix, fog, rangeFogFactor, mx_noise_float, normalMap, positionWorld, dot, vec2, sin, time, smoothstep, step, fract } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { locate, type Loc, type Track } from '../../../sim/src/index';
+import { locate, WEATHER, type Loc, type Track, type WeatherKind } from '../../../sim/src/index';
+import { LOOK, Precip, flashU, skyNode, snowU, wetU } from './weather';
 import type { Engine } from '../gfx/engine';
 
 export const A = '/assets/';
@@ -94,16 +95,44 @@ export class World {
 
   /** Make this the visible world: sky, fog, light. */
   show(on: boolean) {
-    this.group.visible = on; if (!on) return;
+    this.group.visible = on; if (!on) { this.precip?.set(0, 0, 1); return; }
     const eng = this.eng, d = this.def, hdr = (this as any).hdr as THREE.Texture;
     eng.scene.background = hdr; eng.scene.environment = hdr; eng.scene.backgroundRotation.y = this.rot; eng.scene.environmentRotation.y = this.rot;
     eng.scene.environmentIntensity = 0.75; eng.scene.backgroundIntensity = 1;
-    fogColor.value.set(...d.fog); fogNear.value = d.fogNear; fogFar.value = d.fogFar;
     if (!eng.scene.fogNode) eng.scene.fogNode = fog(fogColor, rangeFogFactor(fogNear, fogFar));
+    this.applyWeather();
   }
+
+  weather: WeatherKind = 'clear'; private precip: Precip | null = null; private flash = 0; private nextFlash = 3; private lastT = 0;
+  /** called with the delay (s) before the thunder that follows a flash */
+  onThunder: ((delay: number, power: number) => void) | null = null;
+  /** Sky, light, fog, wet road, snow and precipitation for a kind. Cheap and repeatable: only uniforms and light values change. */
+  setWeather(kind: WeatherKind) { this.weather = kind; if (this.group.visible) this.applyWeather(); }
+  private applyWeather() {
+    const eng = this.eng, d = this.def, kind = this.weather, L = LOOK[kind], info = WEATHER[kind], sc = eng.scene;
+    wetU.value = info.wet; snowU.value = kind === 'snow' ? 1 : 0; flashU.value = 0; this.flash = 0; this.nextFlash = 2 + Math.random() * 3;
+    sc.environmentIntensity = L.env; sc.backgroundIntensity = L.bg; this.sun.color.setHex(L.sunColor ?? d.sunColor); this.sun.intensity = L.sun; this.baseSun = L.sun; this.baseEnv = L.env;
+    let tint = 1;
+    if (L.sky) {
+      const [h, z] = L.sky; sc.background = null; sc.backgroundNode = skyNode(vec3(...h), vec3(...z));
+      fogColor.value.set(h[0] * 0.97, h[1] * 0.97, h[2] * 0.97); tint = (h[0] + h[1] + h[2]) / 3 * 1.6;
+    } else { sc.backgroundNode = null; sc.background = (this as any).hdr; fogColor.value.set(...d.fog); }
+    fogNear.value = L.fog ? L.fog[0] : d.fogNear; fogFar.value = L.fog ? L.fog[1] : d.fogFar;
+    if (!this.precip) { this.precip = new Precip(eng.quality.detail); eng.overlay.add(this.precip.group); }
+    this.precip.set(L.rain, L.snow, Math.min(1, 0.35 + tint * 0.6));
+    this.sky = L.sky ? 1 : 0;
+  }
+  private baseSun = 5.5; private baseEnv = 0.75; private sky = 0;
 
   /** Keep the shadow box centred on the action. */
   update(focus: THREE.Vector3) {
+    const now = performance.now() / 1000, dt = this.lastT ? Math.min(0.1, now - this.lastT) : 0.016; this.lastT = now;
+    this.precip?.update(this.eng.camera, dt);
+    if (this.weather === 'storm') { // lightning: two quick pulses, then thunder some time later (visual only, not part of the simulation)
+      this.nextFlash -= dt;
+      if (this.nextFlash <= 0 && this.flash <= 0) { this.flash = 1; this.nextFlash = 5 + Math.random() * 9; this.onThunder?.(0.6 + Math.random() * 2.4, 0.6 + Math.random() * 0.4); }
+      if (this.flash > 0) { this.flash = Math.max(0, this.flash - dt * 2.6); const f = this.flash, v = f * f * (0.55 + 0.45 * Math.abs(Math.sin(f * 14))); flashU.value = v; this.eng.scene.environmentIntensity = this.baseEnv + v * 2.2; this.sun.intensity = this.baseSun + v * 14; if (this.flash === 0) { this.eng.scene.environmentIntensity = this.baseEnv; this.sun.intensity = this.baseSun; } }
+    }
     const s = this.sun, texel = 190 / s.shadow.mapSize.x;
     const fx = Math.round(focus.x / texel) * texel, fz = Math.round(focus.z / texel) * texel;
     s.target.position.set(fx, focus.y, fz); s.position.copy(s.target.position).addScaledVector(this.sunDir, 350); s.target.updateMatrixWorld();

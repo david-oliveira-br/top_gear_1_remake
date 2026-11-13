@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { BASE, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
-  type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
+  WEATHER, allowedWeather, pickWeather, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
 import { preloadCars } from './car/glb';
@@ -22,6 +22,7 @@ const PART_INFO: Record<PartId, [string, string]> = {
 };
 const KIND: Record<string, string> = { grid: 'Corrida', duel: 'Duelo', trial: 'Contra o relógio', rival: 'Rival' };
 type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options' | 'loading';
+const WX_ICON: Record<WeatherKind, string> = { clear: '☀️', overcast: '☁️', rain: '🌧️', storm: '⛈️', fog: '🌫️', snow: '❄️' };
 const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO' };
 
 export class App {
@@ -43,7 +44,7 @@ export class App {
     this.globe = new Globe(this.eng);
     await preloadCars();
     this.show = new CarVisual(); this.eng.scene.add(this.show.group); this.refreshCar();
-    const unlock = () => { this.audio.unlock(); this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
+    const unlock = () => { this.audio.unlock(); if (this.session) this.weatherSound(this.session.weather); this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
     addEventListener('pointerdown', unlock, { once: true }); addEventListener('keydown', unlock, { once: true });
     const cv = this.eng.canvas;
     cv.addEventListener('pointerdown', () => { this.drag = true; this.orbitAuto = false; }); addEventListener('pointerup', () => (this.drag = false));
@@ -109,7 +110,7 @@ export class App {
     }
     this.showWorld(id);
   }
-  private endSession() { this.session?.dispose(); this.session = null; this.audio.setEngines(0); this.paused = false; this.photo = false; }
+  private endSession() { this.session?.dispose(); this.session = null; this.audio.setEngines(0); this.audio.setWeatherSound(0, 0); for (const v of this.worlds.values()) { v.world.setWeather('clear'); v.world.onThunder = null; } this.paused = false; this.photo = false; }
 
   // ---------- title ----------
   title() {
@@ -131,9 +132,11 @@ export class App {
       const open = cityOpen(this.career, c), evs = EVENTS.filter((e) => e.city === c.id);
       side.replaceChildren(h('div.panel', null, h('h2', null, c.name), h('div', { style: { color: 'var(--dim)' } }, `${c.country} · ${c.landmark}`),
         open ? null : h('p', null, !c.ready ? 'Em breve. Esta cidade chega na próxima fase do jogo.' : this.career.rep < c.rep ? `Reputação necessária: ${c.rep}` : 'Vença o Rei da Orla no Rio para viajar.'),
+        ...(open && evs.length ? [h('div.wxsel', null, h('label', null, 'Clima '), h('select', { onchange: (ev: Event) => { const v = (ev.target as HTMLSelectElement).value; for (const e of evs) { if (v === 'auto') delete this.wxPick[e.id]; else this.wxPick[e.id] = v as WeatherKind; } } },
+          h('option', { value: 'auto' }, 'Previsão do dia'), ...Array.from(new Set(evs.flatMap((e) => allowedWeather(TRACKS[e.track])))).map((k) => h('option', { value: k, selected: evs.every((e) => this.wxPick[e.id] === k) }, `${WX_ICON[k]} ${WEATHER[k].name}`))))] : []),
         ...(open ? evs.map((e) => {
           const res = this.career.results[e.id], ok = eventOpen(this.career, e), done = res && res.place === 1;
-          return h('div.ev' + (ok ? '' : '.lock'), null, h('div', null, h('h3', null, h('span.tag' + (done ? '.done' : ''), null, KIND[e.kind]), e.name), h('small', null, e.blurb),
+          return h('div.ev' + (ok ? '' : '.lock'), null, h('div', null, h('h3', null, h('span.tag' + (done ? '.done' : ''), null, KIND[e.kind]), e.name), h('small', null, e.blurb), h('small.wxf', null, `Previsão: ${WEATHER[this.forecast(e)].name} ${WX_ICON[this.forecast(e)]}`),
             h('small', null, `${TRACKS[e.track]?.open ? 'ponto a ponto' : e.laps + ' voltas'} · prêmio ${money(e.prize[0])} · +${e.fame[0]} rep` + (res ? ` · melhor: ${e.kind === 'trial' ? ['ouro', 'prata', 'bronze', 'sem medalha'][res.place - 1] : res.place + 'º'}` : ''))),
             h('button.go' + (ok ? '.pri' : ''), { disabled: !ok, onclick: () => this.startEvent(e) }, ok ? 'Correr' : `Rep ${e.rep}`));
         }) : [])));
@@ -209,6 +212,19 @@ export class App {
   }
 
   // ---------- race ----------
+  /** The day's forecast for an event: stable for the whole day (day of year + a hash of the event id). */
+  forecast(ev: RaceEvent): WeatherKind {
+    const d = new Date(), doy = Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 0)) / 864e5);
+    let hh = 0; for (const ch of ev.id) hh = (Math.imul(hh, 31) + ch.charCodeAt(0)) | 0;
+    return pickWeather(TRACKS[ev.track], doy + (hh >>> 0) % 100000);
+  }
+  /** Weather the race will use: `?weather=` first, then the player's choice, then the forecast. */
+  private chosenWeather(ev: RaceEvent): WeatherKind {
+    const q = this.q.get('weather') as WeatherKind | null; if (q && q in WEATHER) return q;
+    const pick = this.wxPick[ev.id]; return pick && allowedWeather(TRACKS[ev.track]).includes(pick) ? pick : this.forecast(ev);
+  }
+  private wxPick: Record<string, WeatherKind> = {};
+  private weatherSound(kind: WeatherKind) { const r = kind === 'storm' ? 1 : kind === 'rain' ? 0.65 : 0, w = kind === 'storm' ? 1 : kind === 'rain' ? 0.5 : kind === 'snow' || kind === 'overcast' ? 0.3 : kind === 'fog' ? 0.1 : 0; this.audio.setWeatherSound(r, w); }
   async startEvent(ev: RaceEvent) {
     this.endSession(); this.event = ev; this.clear(); this.globe.show(false); this.show.group.visible = false;
     if (ev.track !== this.curId) {
@@ -221,7 +237,8 @@ export class App {
     const entrants: Entrant[] = ev.rivals.map((r) => ({ spec: r.parts ? lvl(r.parts) : BASE, driver: r.driver, name: r.driver.name, paint: r.paint }));
     const looks: Look[] = ev.rivals.map((r, i) => ({ kind: (i + 1) % 2, paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
     entrants.push({ spec: buildSpec(c.parts, c.tuning), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: c.paint }); looks.push(this.look());
-    const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5));
+    const wx = this.chosenWeather(ev); this.world.setWeather(wx); this.world.onThunder = (d, p) => this.audio.thunder(d, p); this.weatherSound(wx);
+    const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5, wx));
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
     const qc = this.q.get('cam') as CamMode | null; if (qc && CAM_CYCLE.includes(qc)) s.cam = qc; // capture helper: ?cam=chase|far|bumper|hood|cockpit
     if (ev.kind === 'trial' && c.ghost[ev.id]) s.setGhost(c.ghost[ev.id], { ...this.look(), paint: 4 }, 3);
@@ -229,7 +246,7 @@ export class App {
     const H = this.hud, e = (cls: string, html = '') => h('div.' + cls, { html });
     const tall = this.track.open; this.mapW = tall ? 250 : 380; this.mapH = tall ? 640 : 380;
     const mapCv = h<'canvas'>('canvas.map', { width: this.mapW, height: this.mapH, style: tall ? { width: '110px', height: '282px' } : {} }); this.map = mapCv.getContext('2d')!;
-    this.ui.append(h('div.hud', null, (H.pos = e('pos')), (H.lap = e('lap')), (H.time = e('time')), (H.rev = e('rev', '<i></i>')), (H.nos = e('nos', '<i></i>')), (H.gear = e('gear')), (H.speed = e('speed', '<b>0</b><span>KM/H</span>')), mapCv, (H.msg = e('msg')), (H.radio = e('radio'))));
+    this.ui.append(h('div.hud', null, (H.pos = e('pos')), (H.lap = e('lap')), (H.time = e('time')), (H.rev = e('rev', '<i></i>')), (H.nos = e('nos', '<i></i>')), (H.gear = e('gear')), (H.speed = e('speed', '<b>0</b><span>KM/H</span>')), mapCv, (H.msg = e('msg')), (H.radio = e('radio')), (H.wx = e('wx', `${WX_ICON[wx]} ${WEATHER[wx].name}`))));
     this.radioChip();
     const t = this.track; let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
     if (t.open) {

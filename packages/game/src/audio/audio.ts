@@ -234,4 +234,31 @@ export class GameAudio {
   shift() { const c = this.ctx; if (!c) return; this.noise(c.currentTime, 0.05, 0.25, 'bandpass', 2400, this.sfxBus); }
   nitro() { const c = this.ctx; if (!c) return; this.noise(c.currentTime, 0.6, 0.5, 'bandpass', 900, this.sfxBus); this.beep(220, 0.4, 0.15, 'sawtooth'); }
   ui(kind: 'move' | 'ok' | 'back') { this.beep(kind === 'move' ? 330 : kind === 'ok' ? 494 : 220, 0.09, 0.1, 'sine'); }
+
+  // ---- weather ----
+  private wx: { rain: GainNode; wind: GainNode; windF: BiquadFilterNode } | null = null;
+  /** Rain and wind beds: levels 0..1 (0 stops them). Everything goes through the sfx bus so the sfx volume applies. */
+  setWeatherSound(rain: number, wind: number) {
+    const ctx = this.ctx; if (!ctx) return;
+    if (!this.wx) {
+      const loop = (type: BiquadFilterType, freq: number, q: number, off: number) => {
+        const s = ctx.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true; s.loopStart = off; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+        const g = ctx.createGain(); g.gain.value = 0; s.connect(f); f.connect(g); g.connect(this.sfxBus); s.start(0, off); return { g, f };
+      };
+      const rain = ctx.createGain(); rain.gain.value = 0; rain.connect(this.sfxBus);
+      const r1 = loop('highpass', 1800, 0.5, 0.13), r2 = loop('lowpass', 7500, 0.5, 0.41), w = loop('lowpass', 420, 1.2, 0.27);
+      // two layers (hiss and darker patter) feed one rain gain; the loop helper routes to the sfx bus, so rewire
+      for (const r of [r1, r2]) { r.g.disconnect(); r.g.connect(rain); } r2.g.gain.value = 0.5; r1.g.gain.value = 1;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.17; const lg = ctx.createGain(); lg.gain.value = 140; lfo.connect(lg); lg.connect(w.f.frequency); lfo.start();
+      this.wx = { rain, wind: w.g, windF: w.f };
+    }
+    const t = ctx.currentTime; this.wx.rain.gain.setTargetAtTime(rain * 0.32, t, 0.6); this.wx.wind.gain.setTargetAtTime(wind * 0.35, t, 0.8);
+    this.wx.windF.Q.setTargetAtTime(0.8 + wind, t, 0.5);
+  }
+  /** A rumble that starts `delay` seconds from now: a crack, then a long low roll with a few echoes. */
+  thunder(delay = 1, power = 1) {
+    const c = this.ctx; if (!c) return; const t = c.currentTime + delay;
+    this.noise(t, 0.18, 0.5 * power, 'bandpass', 2200, this.sfxBus);
+    for (let i = 0; i < 4; i++) this.noise(t + 0.05 + i * (0.35 + Math.random() * 0.4), 1.4 + Math.random() * 1.6, (0.8 - i * 0.15) * power, 'lowpass', 260 - i * 40, this.sfxBus, true, 0.3);
+  }
 }

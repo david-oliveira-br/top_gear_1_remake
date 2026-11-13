@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, time, mx_noise_float, normalMap, max, positionLocal } from 'three/tsl';
+import { triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, time, mx_noise_float, normalMap, max, positionLocal, vec4 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COAST_BRIDGE, FINISH_BEFORE_END, pointAt, type Track } from '../../../sim/src/index';
 import type { Engine } from '../gfx/engine';
+import { weatherGround, wetRoad } from './weather';
 import { World, fbm, hash, M, set, sstep, std, vnoise, type WorldDef } from './base';
 
 export const COAST_BOUNDS = (t: Track) => ({ x0: Math.floor(Math.min(...t.px) - 420), x1: Math.ceil(Math.max(...t.px) + 460), z0: Math.floor(Math.min(...t.pz) - 420), z1: Math.ceil(Math.max(...t.pz) + 380) });
@@ -89,8 +90,8 @@ export function makeCoast(eng: Engine, track: Track) {
     const rcol = triplanarTexture(texture(rk.map), null, null, float(1 / 30)).rgb.mul(vec3(0.74, 0.7, 0.66)).mul(mx_noise_float(vec3(p.div(9), y.div(40))).mul(0.25).add(0.85));
     const scol = lay(sand, 14, 70).mul(vec3(1.15, 1.05, 0.9));
     const foam = smoothstep(1.5, 0.3, y).mul(smoothstep(-0.9, 0.0, y)).mul(mx_noise_float(vec3(p.div(2.2), time.mul(0.7))).mul(0.5).add(0.55));
-    m.colorNode = mix(mix(mix(gcol, scol, sandW), rcol, rockW).mul(macro), vec3(0.9, 0.93, 0.95), foam.mul(0.7));
-    m.roughnessNode = mix(mix(texture(grass.rough, p.div(9)).r, texture(sand.rough, p.div(14)).r, sandW), texture(rk.rough, p.div(26)).r, rockW);
+    const wg = weatherGround(mix(mix(mix(gcol, scol, sandW), rcol, rockW).mul(macro), vec3(0.9, 0.93, 0.95), foam.mul(0.7)), mix(mix(texture(grass.rough, p.div(9)).r, texture(sand.rough, p.div(14)).r, sandW), texture(rk.rough, p.div(26)).r, rockW), ny);
+    m.colorNode = wg.color; m.roughnessNode = wg.rough;
     m.normalNode = normalMap(mix(mix(texture(grass.nor, p.div(9)), texture(sand.nor, p.div(14)), sandW), texture(rk.nor, p.div(26)), rockW));
     return m;
   }
@@ -109,9 +110,11 @@ export function makeCoast(eng: Engine, track: Track) {
     const shoulder = smoothstep(hw + 0.1, hw + 0.3, al).mul(float(1).sub(smoothstep(lim - 0.2, lim + 1.2, al)));
     const dust = texture(asph.map, auv.mul(1.7)).rgb.mul(vec3(1.5, 1.38, 1.15)).mul(0.78);
     const verge = texture(grass.map, vec2(l, s).div(6)).rgb.mul(vec3(1.5, 1.15, 0.6));
-    m.colorNode = mix(mix(mix(mix(verge, dust, shoulder), base, onRoad), vec3(0.82), white), vec3(0.9, 0.66, 0.08), yel.mul(onRoad));
-    m.roughnessNode = mix(float(0.95), texture(asph.rough, auv).r.mul(0.75).sub(worn.mul(0.5)), onRoad);
-    m.normalNode = normalMap(mix(texture(grass.nor, vec2(l, s).div(6)), texture(asph.nor, auv), onRoad));
+    const gv = weatherGround(mix(verge, dust, shoulder), float(0.95), float(1), float(1).sub(onRoad));
+    const wr = wetRoad(mix(mix(base, vec3(0.82), white), vec3(0.9, 0.66, 0.08), yel.mul(onRoad)), texture(asph.rough, auv).r.mul(0.75).sub(worn.mul(0.5)), onRoad, max(white, yel), l, s);
+    m.colorNode = mix(gv.color, wr.color, onRoad);
+    m.roughnessNode = mix(gv.rough, wr.rough, onRoad);
+    m.normalNode = normalMap(mix(mix(texture(grass.nor, vec2(l, s).div(6)), texture(asph.nor, auv), onRoad), vec4(0.5, 0.5, 1, 1), wr.flat));
     return m;
   }
 

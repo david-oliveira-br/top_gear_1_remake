@@ -67,3 +67,8 @@ table{width:100%;border-collapse:collapse;margin:12px 0}td,th{padding:6px 10px;t
 .slow{position:absolute;left:50%;top:14px;transform:translateX(-50%);max-width:720px;font-size:13px;z-index:5}.slow button{padding:5px 10px;font-size:12px}
 .focus,button:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}.padchip{position:absolute;left:50%;bottom:54px;transform:translateX(-50%)}
 .musicbar{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);z-index:6;display:flex;gap:10px;align-items:center;font:500 13px Inter,sans-serif;color:#dfe4ec;background:rgba(0,0,0,.55);border:1px solid var(--line);border-radius:18px;padding:5px 8px 5px 14px;pointer-events:auto}.musicbar button{padding:5px 12px;font-size:12px}
+.hud .wx{position:absolute;left:30px;top:122px;font:600 15px Inter;color:#dfe4ec;background:rgba(0,0,0,.4);padding:4px 12px;border-radius:14px}
+.ev small.wxf{color:var(--acc2)}
+.wxsel{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--dim)}
+.wxsel select{background:rgba(255,255,255,.08);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:500 14px Inter}
+.wxsel select option{color:#111}
