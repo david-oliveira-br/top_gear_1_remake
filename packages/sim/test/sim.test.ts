@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE, RIO, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, medal, type Driver, type Parts } from '../src/index';
+import { BASE, RIO, COAST, COAST_BRIDGE, FINISH_BEFORE_END, TRACKS, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, CITIES, cityOpen, pointAt, medal, type Driver, type Parts } from '../src/index';
 
 const track = buildTrack(RIO);
 const ace: Driver = { name: 'ace', skill: 0.97, aggression: 0.5, consistency: 1 };
@@ -62,6 +62,57 @@ describe('race', () => {
     expect(r.racers.every((q) => q.finished)).toBe(true);
     const places = r.racers.map((q) => q.place).sort(); expect(places).toEqual([1, 2, 3, 4, 5, 6, 7]);
     console.log('grid bests', r.racers.map((q) => q.name + ' ' + (q.best / 60).toFixed(1)).join(', '));
+  });
+});
+
+describe('coast (point to point)', () => {
+  const coast = buildTrack(COAST);
+  function solo(seed = 3) {
+    const r = createRace(coast, [{ spec: BASE, driver: ace, name: 'a', paint: 0 }], 1, seed, 0), c = r.racers[0].car;
+    let hits = 0, maxIdx = 0;
+    for (let k = 0; k < 60 * 400 && !(r.racers[0].finished && Math.hypot(c.vx, c.vy) < 0.2); k++) {
+      stepRace(r, [null]); if (c.hit > 1) hits++; maxIdx = Math.max(maxIdx, c.loc.idx + c.loc.frac);
+    }
+    return { r, hits, maxIdx, c };
+  }
+  it('has the expected length, corners and no crossings', () => {
+    expect(coast.open).toBe(true); expect(TRACKS.coast).toBe(COAST);
+    expect(coast.len).toBeGreaterThan(5000); expect(coast.len).toBeLessThan(7000);
+    let maxK = 0; for (let i = 0; i < coast.n; i++) maxK = Math.max(maxK, Math.abs(coast.curv[i]));
+    expect(1 / maxK).toBeGreaterThan(25);
+    const skip = Math.ceil(120 / coast.step); let min = Infinity;
+    for (let i = 0; i < coast.n; i++) for (let j = i + skip; j < coast.n; j++) min = Math.min(min, Math.hypot(coast.px[i] - coast.px[j], coast.pz[i] - coast.pz[j]));
+    expect(min).toBeGreaterThan(30);
+    const lo = Math.min(...coast.py), hi = Math.max(...coast.py); expect(lo).toBeGreaterThan(15); expect(hi).toBeLessThan(115);
+    expect(COAST_BRIDGE.to - COAST_BRIDGE.from).toBeGreaterThan(200);
+    expect(COAST_BRIDGE.from / coast.len).toBeGreaterThan(0.35); expect(COAST_BRIDGE.to / coast.len).toBeLessThan(0.47);
+    for (let s = COAST_BRIDGE.from; s <= COAST_BRIDGE.to; s += 10) expect(Math.abs(pointAt(coast, s, 0)[1] - 100)).toBeLessThan(1);
+  });
+  it('solo ace AI drives start to finish without hitting walls and stops before the end', () => {
+    const { r, hits, maxIdx, c } = solo(), q = r.racers[0];
+    console.log('coast solo ace time', (q.finishTick / 60).toFixed(2), 'len', coast.len.toFixed(0), 'hits', hits);
+    expect(q.finished).toBe(true); expect(hits).toBe(0); expect(FINISH_BEFORE_END).toBe(320);
+    const ev = EVENTS.find((e) => e.id === 'coast-trial')!; expect(medal(ev, q.finishTick)).toBe(1); expect(medal(ev, Math.round(q.finishTick * 1.04))).toBe(2); expect(medal(ev, Math.round(q.finishTick * 1.1))).toBe(3); expect(medal(ev, Math.round(q.finishTick * 1.2))).toBe(4);
+    expect(maxIdx * coast.step).toBeLessThan(coast.len - 1); expect(Math.hypot(c.vx, c.vy)).toBeLessThan(0.3);
+  });
+  it('a full grid finishes with places 1..8 and is deterministic', () => {
+    const ev = EVENTS.find((e) => e.id === 'coast-run')!;
+    const run = () => {
+      const r = createRace(coast, [{ spec: BASE, driver: ace, name: 'p', paint: 0 }, ...ev.rivals.map((x, i) => ({ spec: BASE, driver: x.driver, name: x.driver.name, paint: i }))], 1, 9, 0);
+      for (let k = 0; k < 60 * 400 && !r.racers.every((q) => q.finished); k++) stepRace(r, r.racers.map(() => null));
+      return r;
+    };
+    const r = run();
+    expect(r.racers.length).toBe(8); expect(r.racers.every((q) => q.finished)).toBe(true);
+    expect(r.racers.map((q) => q.place).sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    console.log('coast grid', r.racers.map((q) => q.name + ' ' + (q.finishTick / 60).toFixed(1)).join(', '));
+    const snap = (x: typeof r) => x.racers.map((q) => [q.car.x, q.car.z, q.car.vx, q.dist, q.finishTick]);
+    expect(snap(run())).toEqual(snap(r));
+  });
+  it('bigsur opens by reputation alone', () => {
+    const c = newCareer(), city = CITIES.find((x) => x.id === 'bigsur')!;
+    expect(cityOpen(c, city)).toBe(false); c.rep = 30; expect(cityOpen(c, city)).toBe(true);
+    expect(CITIES.some((x) => x.id === 'la')).toBe(false);
   });
 });
 

@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { BASE, CITIES, EVENTS, MAX_LEVEL, PART_IDS, RIO, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
+import { BASE, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
   type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
+import { preloadCars } from './car/glb';
 import { CAR_NAMES, CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
@@ -10,7 +11,9 @@ import { Controls } from './input';
 import { Session, type Look } from './race/session';
 import { loadCareer, loadSettings, saveCareer, saveSettings } from './save';
 import { clock, h, money } from './ui/dom';
-import { World } from './world/rio';
+import { makeCoast } from './world/coast';
+import { makeRio } from './world/rio';
+import type { World } from './world/base';
 
 const PART_INFO: Record<PartId, [string, string]> = {
   engine: ['Motor', 'Mais torque e giro'], turbo: ['Turbo', 'Pressão extra em alta rotação'], gearbox: ['Câmbio', 'Trocas rápidas, marchas próximas'],
@@ -18,10 +21,12 @@ const PART_INFO: Record<PartId, [string, string]> = {
   weight: ['Alívio de peso', 'Menos massa em tudo'], aero: ['Aerodinâmica', 'Pressão para curvas rápidas'], nitro: ['Nitro', 'Mais potência e tanque maior'],
 };
 const KIND: Record<string, string> = { grid: 'Corrida', duel: 'Duelo', trial: 'Contra o relógio', rival: 'Rival' };
-type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options';
+type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options' | 'loading';
+const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO' };
 
 export class App {
-  eng: Engine; world!: World; track: Track = buildTrack(RIO); globe!: Globe; audio = new GameAudio(); radio = new Radio(); controls = new Controls();
+  eng: Engine; world!: World; rioTrack: Track = buildTrack(RIO); track: Track = this.rioTrack; curId = 'rio'; private worlds = new Map<string, { world: World; track: Track }>();
+   globe!: Globe; audio = new GameAudio(); radio = new Radio(); controls = new Controls();
   career: Career = loadCareer(); settings = loadSettings(); ui = document.getElementById('ui')!;
   screen: Screen = 'title'; show!: CarVisual; session: Session | null = null; event: RaceEvent | null = null;
   private orbit = 2.2; private orbitAuto = true; private drag = false; private paused = false; private photo = false; private endTimer = 0; private hud: Record<string, HTMLElement> = {};
@@ -34,8 +39,9 @@ export class App {
     const loading = h('div.load', null, h('h1', null, 'REDLINE HORIZON'), h('div', null, 'CARREGANDO O RIO…')); this.ui.append(loading);
     const quality = QUALITIES.find((x) => x.id === (this.q.get('q') ?? this.settings.quality)) ?? QUALITIES[2];
     await this.eng.init(quality); (window as any).__backend = this.eng.backend;
-    this.world = new World(this.eng, this.track); await this.world.build();
+    this.world = makeRio(this.eng, this.track); await this.world.build(); this.worlds.set('rio', { world: this.world, track: this.track }); this.showWorld('rio');
     this.globe = new Globe(this.eng);
+    await preloadCars();
     this.show = new CarVisual(); this.eng.scene.add(this.show.group); this.refreshCar();
     const unlock = () => { this.audio.unlock(); this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
     addEventListener('pointerdown', unlock, { once: true }); addEventListener('keydown', unlock, { once: true });
@@ -48,14 +54,15 @@ export class App {
     if (this.q.get('hideui')) this.ui.style.display = 'none'; // capture helpers: ?hideui=1&orbit=<radians>
     if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
     const go = this.q.get('go');
-    if (go === 'race') this.startEvent(EVENTS.find((e) => e.id === this.q.get('ev')) ?? EVENTS[0]); else if (go === 'garage') this.garage(); else if (go === 'map') this.mapScreen(); else this.title();
+    if (go && this.q.get('rep')) this.career.rep = +this.q.get('rep')!; // capture helper: pretend to have this reputation (not saved by itself)
+    if (go === 'race') await this.startEvent(EVENTS.find((e) => e.id === this.q.get('ev')) ?? EVENTS[0]); else if (go === 'garage') this.garage(); else if (go === 'map') this.mapScreen(CITIES.find((c) => c.id === this.q.get('city')) ?? undefined); else this.title();
     const skip = +(this.q.get('t') ?? 0); if (this.session) for (let i = 0; i < skip * 60; i++) this.session.update(1 / 60, null);
     requestAnimationFrame(() => this.frame());
   }
 
   // ---------- shared helpers ----------
   private clear() { this.ui.replaceChildren(); this.hud = {}; this.labels.clear(); }
-  private look(): Look { const c = this.career; return { paint: c.paint, finish: c.finish, wheels: c.wheels, aero: c.parts.aero, lower: c.parts.suspension }; }
+  private look(): Look { const c = this.career; return { paint: this.q.get('paint') ? +this.q.get('paint')! : c.paint, finish: this.q.get('finish') ? +this.q.get('finish')! : c.finish, wheels: c.wheels, aero: c.parts.aero, lower: c.parts.suspension }; }
   private refreshCar() { this.show.setLook(this.look()); }
   private music(name: string) {
     if (!this.audio.ctx) return;
@@ -83,14 +90,30 @@ export class App {
     return h('div.top', null, h('h2', null, title), h('div.chip', { html: `Reputação <b>${this.career.rep}</b>` }), h('div.chip', { html: `<b>${money(this.career.money)}</b>` }), ...extra, h('button', { onclick: back }, 'Voltar'));
   }
   private placeShow() {
-    const [x, y, z, yaw] = pointAt(this.track, 46, 0); this.show.group.visible = true;
+    const [x, y, z, yaw] = pointAt(this.rioTrack, 46, 0); this.show.group.visible = true;
     this.show.place(x, y, z, yaw, { speed: 0, steer: 0.25, ax: 0, ay: 0, gradF: 0, gradR: 0, brake: 0, dt: 0.016 });
+  }
+  /** Make world `id` the visible one (it must be built). */
+  private showWorld(id: string) {
+    for (const [k, v] of this.worlds) v.world.show(k === id);
+    const w = this.worlds.get(id)!; this.world = w.world; this.track = w.track; this.curId = id;
+  }
+  private showRio() { if (this.curId !== 'rio') this.showWorld('rio'); }
+  /** Build a track's world the first time it is needed, then switch to it. */
+  private async enterWorld(id: string) {
+    if (this.curId === id) return;
+    if (!this.worlds.has(id)) {
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40))); // let the loading overlay paint before the long build
+      const track = buildTrack(TRACKS[id]), world = id === 'coast' ? makeCoast(this.eng, track) : makeRio(this.eng, track);
+      await world.build(); this.worlds.set(id, { world, track });
+    }
+    this.showWorld(id);
   }
   private endSession() { this.session?.dispose(); this.session = null; this.audio.setEngines(0); this.paused = false; this.photo = false; }
 
   // ---------- title ----------
   title() {
-    this.endSession(); this.screen = 'title'; this.clear(); this.globe.show(false); this.placeShow(); this.orbitAuto = true; this.music('title');
+    this.endSession(); this.showRio(); this.screen = 'title'; this.clear(); this.globe.show(false); this.placeShow(); this.orbitAuto = true; this.music('title');
     this.ui.append(h('div.title', null, h('h1', { html: 'REDLINE<br><span>HORIZON</span>' }), h('p', null, 'World Tour — comece no Rio, monte o seu carro e conquiste o mundo.'),
       h('div.menu', null, h('button.pri', { onclick: () => this.mapScreen() }, 'Carreira'), h('button', { onclick: () => this.garage() }, 'Garagem'), h('button', { onclick: () => this.options() }, 'Opções'))),
       h('div.hint', null, 'Setas ou WASD dirigem · Shift nitro · Espaço freio de mão · P modo foto · controle PS/Xbox suportado'));
@@ -98,7 +121,7 @@ export class App {
 
   // ---------- world map ----------
   mapScreen(city: City = this.globe.selected) {
-    this.endSession(); this.screen = 'map'; this.clear(); this.show.group.visible = false; this.globe.show(true); this.music('title');
+    this.endSession(); this.showRio(); this.screen = 'map'; this.clear(); this.show.group.visible = false; this.globe.show(true); this.music('title');
     this.globe.paint((c) => (c.id === 'rio' && this.career.results['rio-rival']?.place === 1 ? 'done' : cityOpen(this.career, c) ? 'open' : 'lock'));
     const side = h('div.side');
     this.ui.append(this.topBar('World Tour', () => this.title(), [h('button', { onclick: () => this.garage() }, 'Garagem')]), side);
@@ -107,11 +130,11 @@ export class App {
       this.globe.select(c, animate); for (const [id, el] of this.labels) el.classList.toggle('sel', id === c.id);
       const open = cityOpen(this.career, c), evs = EVENTS.filter((e) => e.city === c.id);
       side.replaceChildren(h('div.panel', null, h('h2', null, c.name), h('div', { style: { color: 'var(--dim)' } }, `${c.country} · ${c.landmark}`),
-        open ? null : h('p', null, !c.ready ? 'Em breve. Esta cidade chega na próxima fase do jogo.' : this.career.results['rio-rival']?.place !== 1 ? 'Vença o Rei da Orla no Rio para viajar.' : `Reputação necessária: ${c.rep}`),
+        open ? null : h('p', null, !c.ready ? 'Em breve. Esta cidade chega na próxima fase do jogo.' : this.career.rep < c.rep ? `Reputação necessária: ${c.rep}` : 'Vença o Rei da Orla no Rio para viajar.'),
         ...(open ? evs.map((e) => {
           const res = this.career.results[e.id], ok = eventOpen(this.career, e), done = res && res.place === 1;
           return h('div.ev' + (ok ? '' : '.lock'), null, h('div', null, h('h3', null, h('span.tag' + (done ? '.done' : ''), null, KIND[e.kind]), e.name), h('small', null, e.blurb),
-            h('small', null, `${e.laps} voltas · prêmio ${money(e.prize[0])} · +${e.fame[0]} rep` + (res ? ` · melhor: ${e.kind === 'trial' ? ['ouro', 'prata', 'bronze', 'sem medalha'][res.place - 1] : res.place + 'º'}` : ''))),
+            h('small', null, `${TRACKS[e.track]?.open ? 'ponto a ponto' : e.laps + ' voltas'} · prêmio ${money(e.prize[0])} · +${e.fame[0]} rep` + (res ? ` · melhor: ${e.kind === 'trial' ? ['ouro', 'prata', 'bronze', 'sem medalha'][res.place - 1] : res.place + 'º'}` : ''))),
             h('button.go' + (ok ? '.pri' : ''), { disabled: !ok, onclick: () => this.startEvent(e) }, ok ? 'Correr' : `Rep ${e.rep}`));
         }) : [])));
     };
@@ -121,7 +144,7 @@ export class App {
 
   // ---------- garage ----------
   garage() {
-    this.endSession(); this.screen = 'garage'; this.clear(); this.globe.show(false); this.placeShow(); this.music('showroom');
+    this.endSession(); this.showRio(); this.screen = 'garage'; this.clear(); this.globe.show(false); this.placeShow(); this.music('showroom');
     const c = this.career, left = h('div.left'), side = h('div.side');
     this.ui.append(this.topBar('Garagem', () => this.title(), [h('button', { onclick: () => this.mapScreen() }, 'World Tour')]), left, side, h('div.hint', null, 'Arraste para girar o carro · P modo foto'));
     const draw = () => {
@@ -186,8 +209,13 @@ export class App {
   }
 
   // ---------- race ----------
-  startEvent(ev: RaceEvent) {
-    this.endSession(); this.event = ev; this.screen = 'race'; this.clear(); this.globe.show(false); this.show.group.visible = false; this.endTimer = 0; this.lastBeep = 9; this.bestSeen = 0;
+  async startEvent(ev: RaceEvent) {
+    this.endSession(); this.event = ev; this.clear(); this.globe.show(false); this.show.group.visible = false;
+    if (ev.track !== this.curId) {
+      this.screen = 'loading'; this.ui.append(h('div.load', null, h('h1', null, 'REDLINE HORIZON'), h('div', null, 'CARREGANDO ' + (PLACE_NAME[ev.track] ?? ev.track.toUpperCase()) + '…')));
+      await this.enterWorld(ev.track); this.clear();
+    }
+    this.screen = 'race'; this.endTimer = 0; this.lastBeep = 9; this.bestSeen = 0; this.finalSaid = false;
     const c = this.career, auto = this.q.get('auto');
     const lvl = (n: number) => buildSpec({ engine: n, turbo: n, gearbox: n, tyres: n, suspension: n, brakes: n, weight: n, aero: n, nitro: n });
     const entrants: Entrant[] = ev.rivals.map((r) => ({ spec: r.parts ? lvl(r.parts) : BASE, driver: r.driver, name: r.driver.name, paint: r.paint }));
@@ -198,13 +226,25 @@ export class App {
     if (ev.kind === 'trial' && c.ghost[ev.id]) s.setGhost(c.ghost[ev.id], { ...this.look(), paint: 4 }, 3);
     this.audio.setEngines(1); this.music('brazil');
     const H = this.hud, e = (cls: string, html = '') => h('div.' + cls, { html });
-    const mapCv = h<'canvas'>('canvas.map', { width: 380, height: 380 }); this.map = mapCv.getContext('2d')!;
+    const tall = this.track.open; this.mapW = tall ? 250 : 380; this.mapH = tall ? 640 : 380;
+    const mapCv = h<'canvas'>('canvas.map', { width: this.mapW, height: this.mapH, style: tall ? { width: '110px', height: '282px' } : {} }); this.map = mapCv.getContext('2d')!;
     this.ui.append(h('div.hud', null, (H.pos = e('pos')), (H.lap = e('lap')), (H.time = e('time')), (H.rev = e('rev', '<i></i>')), (H.nos = e('nos', '<i></i>')), (H.gear = e('gear')), (H.speed = e('speed', '<b>0</b><span>KM/H</span>')), mapCv, (H.msg = e('msg')), (H.radio = e('radio'))));
     this.radioChip();
-    const t = this.track; let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (let i = 0; i < t.n; i++) { x0 = Math.min(x0, t.px[i]); x1 = Math.max(x1, t.px[i]); z0 = Math.min(z0, t.pz[i]); z1 = Math.max(z1, t.pz[i]); }
-    const sc = 340 / Math.max(x1 - x0, z1 - z0); this.mapXY = (x, z) => [190 + (x - (x0 + x1) / 2) * sc, 190 + (z - (z0 + z1) / 2) * sc];
+    const t = this.track; let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+    if (t.open) {
+      // point-to-point: rotate so the start-to-finish direction points up, then fit the route in the box
+      let ux = t.px[t.n - 1] - t.px[0], uz = t.pz[t.n - 1] - t.pz[0]; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+      const proj = (x: number, z: number): [number, number] => [(x - t.px[0]) * -uz + (z - t.pz[0]) * ux, (x - t.px[0]) * ux + (z - t.pz[0]) * uz];
+      let a0 = 1e9, a1 = -1e9; for (let i = 0; i < t.n; i++) { const [c, l] = proj(t.px[i], t.pz[i]); x0 = Math.min(x0, c); x1 = Math.max(x1, c); a0 = Math.min(a0, l); a1 = Math.max(a1, l); }
+      const sc = Math.min((this.mapW - 40) / (x1 - x0), (this.mapH - 40) / (a1 - a0)); this.mapXY = (x, z) => { const [c, l] = proj(x, z); return [this.mapW / 2 + (c - (x0 + x1) / 2) * sc, this.mapH / 2 - (l - (a0 + a1) / 2) * sc]; };
+    } else {
+      for (let i = 0; i < t.n; i++) { x0 = Math.min(x0, t.px[i]); x1 = Math.max(x1, t.px[i]); z0 = Math.min(z0, t.pz[i]); z1 = Math.max(z1, t.pz[i]); }
+      const sc = 340 / Math.max(x1 - x0, z1 - z0); this.mapXY = (x, z) => [190 + (x - (x0 + x1) / 2) * sc, 190 + (z - (z0 + z1) / 2) * sc];
+    }
     this.mapPath = []; for (let i = 0; i < t.n; i += 4) this.mapPath.push(this.mapXY(t.px[i], t.pz[i]));
+    if (t.open) this.mapPath.push(this.mapXY(t.px[t.n - 1], t.pz[t.n - 1]));
   }
+  private mapW = 380; private mapH = 380;
   private mapXY: (x: number, z: number) => [number, number] = () => [0, 0];
   private say(text: string, secs = 1.6, color = '#fff') { const m = this.hud.msg; if (!m) return; m.textContent = text; m.style.color = color; m.classList.add('on'); this.msgT = secs; }
 
@@ -216,6 +256,8 @@ export class App {
     const frozen = this.paused || this.photo, inp = this.controls.out;
     if (this.photo) { s.cam = 'orbit'; if (!this.drag) s.orbit += inp.steer * dt * 1.5; else s.orbit = this.orbit; }
     s.update(frozen ? 0 : dt, me.ai ? null : inp);
+    const dbg = this.q.get('dbg'); // capture helper: ?dbg=x,y,z,lookX,lookY,lookZ places the camera in world coordinates
+    if (dbg) { const v = dbg.split(',').map(Number); this.eng.camera.position.set(v[0], v[1], v[2]); this.eng.camera.lookAt(v[3], v[4], v[5]); }
     if (frozen) { a.updateEngine(0, 0.12, 0, 0, false); return; }
     // countdown lights
     const n = Math.ceil(r.countdown / 60);
@@ -232,13 +274,18 @@ export class App {
     H.speed.firstElementChild!.textContent = String(Math.round(kmh)); H.gear.textContent = c.gear < 0 ? 'R' : String(c.gear);
     (H.rev.firstElementChild as HTMLElement).style.width = Math.min(100, (c.rpm / c.spec.redline) * 100) + '%'; (H.nos.firstElementChild as HTMLElement).style.width = (c.nitro / c.spec.nitroTank) * 100 + '%';
     H.pos.innerHTML = this.event!.kind === 'trial' ? '' : `${me.place}<small>/${total}</small>`;
-    H.lap.innerHTML = `VOLTA <b>${Math.min(r.laps, me.lap + 1)}</b>/${r.laps}`;
+    H.lap.innerHTML = r.track.open ? `PROGRESSO <b>${Math.max(0, Math.min(100, Math.floor((me.dist / (r.track.len - FINISH_BEFORE_END)) * 100)))}%</b>` : `VOLTA <b>${Math.min(r.laps, me.lap + 1)}</b>/${r.laps}`;
     H.time.innerHTML = `${clock(r.countdown > 0 || me.finished ? 0 : r.tick - me.lapStart)}<small>melhor ${clock(me.best)}</small>`;
     if (me.best && me.best !== this.bestSeen) { if (this.bestSeen) this.say('MELHOR VOLTA', 1.4, '#3ddc97'); this.bestSeen = me.best; }
     if (me.lap === r.laps - 1 && r.laps > 1 && !this.finalSaid) { this.finalSaid = true; this.say('ÚLTIMA VOLTA', 1.6); }
     // minimap
-    const g = this.map; g.clearRect(0, 0, 380, 380); g.lineJoin = 'round'; g.beginPath(); this.mapPath.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+    const g = this.map; g.clearRect(0, 0, this.mapW, this.mapH); g.lineJoin = 'round'; g.beginPath(); this.mapPath.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); if (!r.track.open) g.closePath();
     g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 12; g.stroke(); g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 5; g.stroke();
+    if (r.track.open) { // start (green) and finish line (chequered)
+      const tk = r.track, [sx, sy] = this.mapXY(tk.px[0], tk.pz[0]), fi = Math.round((tk.len - FINISH_BEFORE_END) / tk.step), [fx, fy] = this.mapXY(tk.px[fi], tk.pz[fi]);
+      g.fillStyle = '#3ddc97'; g.fillRect(sx - 8, sy - 3, 16, 6); g.strokeStyle = '#000'; g.lineWidth = 1.5; g.strokeRect(sx - 8, sy - 3, 16, 6);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#fff'; g.fillRect(fx - 8 + i * 4, fy - 4 + j * 4, 4, 4); } g.strokeRect(fx - 8, fy - 4, 16, 8);
+    }
     r.racers.forEach((q, i) => { const [x, y] = this.mapXY(q.car.x, q.car.z); g.beginPath(); g.arc(x, y, i === s.player ? 9 : 6, 0, 7); g.fillStyle = i === s.player ? '#ff4b2b' : PAINTS[q.paint % PAINTS.length]; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 2; g.stroke(); });
     if (me.finished && !this.endTimer) { this.endTimer = 2.6; this.say('CHEGADA!', 2.4, '#ffb020'); }
     if (this.endTimer && (this.endTimer -= dt) <= 0) this.results();
@@ -281,11 +328,11 @@ export class App {
     const order = r.racers.slice().sort((a, b) => a.place - b.place);
     const head = ev.kind === 'trial' ? ['🥇 Ouro', '🥈 Prata', '🥉 Bronze', 'Sem medalha'][place - 1] : place === 1 ? 'Vitória!' : place + 'º lugar';
     this.ui.append(h('div.center.panel', null, h('h2', null, head), h('div', { style: { color: 'var(--dim)' } }, ev.name + (ev.medals ? ` · ouro ${ev.medals[0]}s · prata ${ev.medals[1]}s · bronze ${ev.medals[2]}s` : '')),
-      h('table', null, h('tr', null, h('th', null, '#'), h('th', null, 'Piloto'), h('th', null, 'Melhor volta'), h('th', null, 'Total')),
+      h('table', null, h('tr', null, h('th', null, '#'), h('th', null, 'Piloto'), h('th', null, ev.laps > 1 && !r.track.open ? 'Melhor volta' : 'Tempo'), h('th', null, 'Total')),
         ...order.map((q) => h('tr' + (q === me ? '.me' : ''), null, h('td', null, String(q.place)), h('td', null, q.name), h('td', null, clock(q.best)), h('td', null, q.finished ? clock(q.finishTick) : '—')))),
       h('p', { html: `Prêmio <b style="color:var(--acc2)">${money(got.money)}</b> · Reputação <b style="color:var(--acc2)">+${got.rep}</b>${got.improved ? '' : ' <small>(repetição paga menos)</small>'}` }),
       ev.kind === 'rival' && place === 1 ? h('p', { style: { color: 'var(--ok)' } }, 'Você é o novo dono da orla. As próximas cidades do World Tour chegam na fase 2.') : null,
-      h('div', { style: { display: 'flex', gap: '8px' } }, h('button.pri', { onclick: () => this.mapScreen(CITIES[0]) }, 'Continuar'), h('button', { onclick: () => this.startEvent(ev) }, 'Repetir'), h('button', { onclick: () => this.garage() }, 'Garagem'))));
+      h('div', { style: { display: 'flex', gap: '8px' } }, h('button.pri', { onclick: () => this.mapScreen(CITIES.find((x) => x.id === ev.city) ?? CITIES[0]) }, 'Continuar'), h('button', { onclick: () => this.startEvent(ev) }, 'Repetir'), h('button', { onclick: () => this.garage() }, 'Garagem'))));
   }
 
   // ---------- frame ----------
@@ -314,7 +361,7 @@ export class App {
         h('button.pri', { onclick: () => { this.settings.quality = 'low'; saveSettings(this.settings); location.reload(); } }, 'Usar qualidade baixa'), ' ', h('button', { onclick: (e: Event) => (e.target as HTMLElement).parentElement!.remove() }, 'Fechar'))); } else this.slow = 0;
     }
     if (this.frames === 4) (window as any).__ready = true;
-    (window as any).__info = { screen: this.screen, money: this.career.money, rep: this.career.rep, place: this.session?.me.place, lap: this.session?.me.lap, finished: this.session?.me.finished };
+    (window as any).__info = { screen: this.screen, money: this.career.money, rep: this.career.rep, place: this.session?.me.place, lap: this.session?.me.lap, finished: this.session?.me.finished, track: this.curId, tris: this.eng.renderer.info.render.triangles, dist: Math.round(this.session?.me.dist ?? 0) };
     requestAnimationFrame(() => this.frame());
   }
 }

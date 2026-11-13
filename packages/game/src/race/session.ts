@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { DT, createRace, noInput, stepRace, type Entrant, type Input, type Race, type Racer, type Track } from '../../../sim/src/index';
 import { CarVisual } from '../car/visual';
 import type { Engine } from '../gfx/engine';
-import type { World } from '../world/rio';
+import type { World } from '../world/base';
 
 export type CamMode = 'chase' | 'hood' | 'orbit';
 export interface Look { kind?: number; paint: number; finish?: number; wheels?: number; aero?: number; lower?: number; }

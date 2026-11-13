@@ -1,6 +1,6 @@
 # Asset credits
 
-All files in this folder come from [Poly Haven](https://polyhaven.com) and are licensed CC0 (public domain).
+Files come from [Poly Haven](https://polyhaven.com) (CC0, public domain) unless noted below.
 
 | File | Asset | Author |
 |---|---|---|
@@ -10,6 +10,12 @@ All files in this folder come from [Poly Haven](https://polyhaven.com) and are l
 | aerial_beach_01_*.jpg | [Aerial Beach 01](https://polyhaven.com/a/aerial_beach_01) | Rob Tuytel |
 | rock_face_03_*.jpg | [Rock Face 03](https://polyhaven.com/a/rock_face_03) | Dario Barresi, Rico Cilliers |
 | concrete_wall_008_*.jpg | [Concrete Wall 008](https://polyhaven.com/a/concrete_wall_008) | Dario Barresi, Charlotte Baglioni |
-| ne_110m_land.geojson | [Natural Earth 1:110m land](https://www.naturalearthdata.com) | Natural Earth (domínio público) |
 
-Rádio: [MELODEATH.AI Radio](https://www.ai-metal-radio-station.nl/) — stream de terceiros tocado pelo navegador do jogador; não faz parte deste repositório.
+## Car models
+
+Licensed CC0 1.0 (public domain), from [Grab3D](https://grab3d.com).
+
+| File | Asset | Source |
+|---|---|---|
+| cars/1990s-sports-car.glb | 1990s sports car | https://grab3d.com/models/vehicles/1990s-sports-car/ |
+| cars/1980s-sports-car.glb | 1980s sports car | https://grab3d.com/models/vehicles/1980s-sports-car/ |

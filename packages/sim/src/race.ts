@@ -17,17 +17,21 @@ export interface Race {
 }
 
 export const COUNTDOWN = 240;
+/** point-to-point tracks end this many metres after the finish line */
+export const FINISH_BEFORE_END = 320;
 
 /** Entrants are listed in grid order, pole first. */
 export function createRace(track: Track, entrants: Entrant[], laps: number, seed = 1, rubber = 0.5): Race {
   const racers = entrants.map((e, k) => {
     const car = makeCar(k, e.spec);
-    const [x, y, z, yaw] = pointAt(track, track.len - 10 - k * 7.5, k % 2 ? 2.8 : -2.8);
+    // closed loops start behind the line; point-to-point tracks start 30 m in, pole in front
+    const s0 = track.open ? 30 + (entrants.length - 1 - k) * 7.5 : track.len - 10 - k * 7.5;
+    const [x, y, z, yaw] = pointAt(track, s0, track.open ? (k % 2 ? 2.4 : -2.4) : (k % 2 ? 2.8 : -2.8));
     car.x = x; car.y = y; car.z = z; car.yaw = yaw; locate(track, x, z, -1, car.loc); car.y = heightAt(track, car.loc);
     const ai = e.driver ? makeProfile(track, e.spec, e.driver, seed * 7919 + k * 104729) : null;
-    return { car, ai, name: e.name, paint: e.paint, dist: -(10 + k * 7.5), lap: 0, lapStart: 0, lapTimes: [], best: 0, finished: false, finishTick: 0, place: k + 1 } as Racer;
+    return { car, ai, name: e.name, paint: e.paint, dist: track.open ? s0 : -(10 + k * 7.5), lap: 0, lapStart: 0, lapTimes: [], best: 0, finished: false, finishTick: 0, place: k + 1 } as Racer;
   });
-  return { track, laps, tick: 0, countdown: COUNTDOWN, racers, over: false, rubber };
+  return { track, laps: track.open ? 1 : laps, tick: 0, countdown: COUNTDOWN, racers, over: false, rubber };
 }
 
 const aiIn = noInput();
@@ -44,7 +48,7 @@ export function stepRace(r: Race, inputs: (Input | null)[]) {
       let pace = 1;
       if (human > -Infinity && r.rubber > 0) pace += Math.max(-0.05, Math.min(0.04, (human - q.dist) / 3000)) * r.rubber;
       inp = drive(c, q.ai, t, cars, q.finished ? 0.7 : pace, aiIn);
-    } else if (q.finished) { inp = aiIn; aiIn.steer = 0; aiIn.throttle = 0; aiIn.brake = 0.4; aiIn.nitro = false; aiIn.handbrake = false; aiIn.shift = 0; }
+    } else if (q.finished) { inp = aiIn; aiIn.steer = 0; aiIn.throttle = 0; aiIn.brake = t.open ? 1 : 0.4; aiIn.nitro = false; aiIn.handbrake = false; aiIn.shift = 0; }
     // slipstream from the car ahead
     let draft = 0;
     for (const o of cars) {
@@ -55,14 +59,15 @@ export function stepRace(r: Race, inputs: (Input | null)[]) {
     c.draft += (draft - c.draft) * 0.08;
     const before = c.loc.idx + c.loc.frac;
     stepCar(c, inp, t, hold);
-    let d = (c.loc.idx + c.loc.frac - before) * t.step; if (d > t.len / 2) d -= t.len; else if (d < -t.len / 2) d += t.len;
+    let d = (c.loc.idx + c.loc.frac - before) * t.step;
+    if (!t.open) { if (d > t.len / 2) d -= t.len; else if (d < -t.len / 2) d += t.len; }
     q.dist += d;
   }
   for (let a = 0; a < cars.length; a++) for (let b = a + 1; b < cars.length; b++) collide(cars[a], cars[b]);
   if (!hold) {
     r.tick++;
     for (const q of r.racers) {
-      const lap = Math.floor(q.dist / t.len);
+      const lap = t.open ? (q.dist >= t.len - FINISH_BEFORE_END ? 1 : 0) : Math.floor(q.dist / t.len);
       if (lap > q.lap && !q.finished) {
         const time = r.tick - q.lapStart; q.lapTimes.push(time); if (!q.best || time < q.best) q.best = time;
         q.lapStart = r.tick; q.lap = lap;

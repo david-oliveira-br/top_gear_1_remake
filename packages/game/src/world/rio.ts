@@ -1,30 +1,16 @@
 import * as THREE from 'three/webgpu';
-import { uniform, instanceIndex, triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, time, attribute, fog, rangeFogFactor, mx_noise_float, normalMap, max, min, dot } from 'three/tsl';
-import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { instanceIndex, triplanarTexture, texture, uv, mix, vec2, vec3, float, positionWorld, normalWorld, smoothstep, fract, floor, step, abs, sin, attribute, mx_noise_float, normalMap, max } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { locate, type Loc, type Track } from '../../../sim/src/index';
+import type { Track } from '../../../sim/src/index';
 import type { Engine } from '../gfx/engine';
+import { World, fbm, hash, M, set, sstep, std, vnoise, type WorldDef } from './base';
 
-const A = '/assets/';
-const loader = new THREE.TextureLoader();
-function tex(name: string, srgb = false) {
-  const t = loader.load(A + name); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; return t;
-}
-const set = (id: string) => ({ map: tex(id + '_diffuse.jpg', true), nor: tex(id + '_nor_gl.jpg'), rough: tex(id + '_rough.jpg') });
-
-// deterministic noise for placing things
-function hash(x: number, y: number) { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
-function vnoise(x: number, y: number) {
-  const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
-  return (hash(xi, yi) * (1 - u) + hash(xi + 1, yi) * u) * (1 - v) + (hash(xi, yi + 1) * (1 - u) + hash(xi + 1, yi + 1) * u) * v;
-}
-const fbm = (x: number, y: number) => vnoise(x, y) * 0.5 + vnoise(x * 2.1 + 7, y * 2.1 + 3) * 0.3 + vnoise(x * 4.3 + 1, y * 4.3 + 9) * 0.2;
-const sstep = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const dome = (x: number, z: number, cx: number, cz: number, R: number, H: number, p = 0.55) => { const r = Math.hypot(x - cx, z - cz) / R; return r < 1 ? H * Math.pow(1 - r * r, p) : 0; };
 
 export const CRISTO = { x: -170, z: -820, h: 318 };
 const SUGAR = { x: 1010, z: 470 }, URCA = { x: 850, z: 330 };
 const shore = (x: number) => 196 + 14 * Math.sin(x / 260) + 8 * Math.sin(x / 90 + 1);
+
 
 /** Height of the land before the road is cut into it. */
 export function natural(x: number, z: number) {
@@ -37,88 +23,10 @@ export function natural(x: number, z: number) {
   return h;
 }
 
-export class World {
-  group = new THREE.Group(); sun = new THREE.DirectionalLight(0xffc48a, 5.5); sunDir = new THREE.Vector3(-0.85, 0.2, 0.42).normalize();
-  /** 0..1 pulse from the music; street lamps and signs breathe with it */
-  pulse = uniform(0);
-  private nearest: Int32Array; private gx0 = -1500; private gz0 = -1350; private cell = 5; private gw = 0; private gh = 0; private height!: Float32Array;
+/** Flat coastal strip where the city stands. */
+const cityZone = (w: World, x: number, z: number) => { const d = shore(x) - z; return d > 58 && d < 240 && w.heightAt(x, z) < 19 && x < 780; };
 
-  constructor(private eng: Engine, public track: Track) {
-    this.nearest = new Int32Array(0);
-    eng.scene.add(this.group);
-  }
-
-  async build() {
-    const eng = this.eng, t = this.track, q = eng.quality;
-    // ---- sky and sun ----
-    const hdr = await new HDRLoader().loadAsync(A + 'kloppenheim_06_puresky_4k.hdr'); hdr.mapping = THREE.EquirectangularReflectionMapping;
-    const img = hdr.image as { data: Uint16Array; width: number; height: number };
-    let best = 0, bu = 0, bv = 0;
-    for (let y = 0; y < img.height / 2; y += 3) for (let x = 0; x < img.width; x += 3) {
-      const i = (y * img.width + x) * 4, l = THREE.DataUtils.fromHalfFloat(img.data[i]) + THREE.DataUtils.fromHalfFloat(img.data[i + 1]) + THREE.DataUtils.fromHalfFloat(img.data[i + 2]);
-      if (l > best) { best = l; bu = x / img.width; bv = y / img.height; }
-    }
-    const lat = (0.5 - bv) * Math.PI, lon = (bu - 0.5) * Math.PI * 2, hx = Math.cos(lat) * Math.cos(lon), hz = Math.cos(lat) * Math.sin(lon);
-    const want = Math.atan2(this.sunDir.z, this.sunDir.x), have = Math.atan2(hz, hx), rot = have - want;
-    eng.scene.background = hdr; eng.scene.environment = hdr; eng.scene.backgroundRotation.y = rot; eng.scene.environmentRotation.y = rot;
-    const el = Math.max(0.3, lat), c = Math.cos(el); this.sunDir.set(Math.cos(want) * c, Math.sin(el), Math.sin(want) * c);
-    eng.scene.environmentIntensity = 0.75; eng.scene.backgroundIntensity = 1;
-    eng.scene.fogNode = fog(vec3(0.6, 0.56, 0.58), rangeFogFactor(400, 9000));
-    const s = this.sun; s.castShadow = true; s.shadow.mapSize.set(q.shadow, q.shadow); s.shadow.bias = -0.0004; s.shadow.normalBias = 0.06;
-    Object.assign(s.shadow.camera, { left: -95, right: 95, top: 95, bottom: -95, near: 10, far: 700 }); s.shadow.camera.updateProjectionMatrix();
-    this.group.add(s, s.target);
-
-    this.terrain(); this.road(); this.sea(); this.props();
-  }
-
-  /** Keep the shadow box centred on the action. */
-  update(focus: THREE.Vector3) {
-    const s = this.sun, texel = 190 / s.shadow.mapSize.x;
-    const fx = Math.round(focus.x / texel) * texel, fz = Math.round(focus.z / texel) * texel;
-    s.target.position.set(fx, focus.y, fz); s.position.copy(s.target.position).addScaledVector(this.sunDir, 350); s.target.updateMatrixWorld();
-  }
-
-  private loc: Loc = { idx: 0, frac: 0, lat: 0 };
-  /** Ground height anywhere: the road corridor near the track, natural land elsewhere. */
-  heightAt(x: number, z: number) {
-    const gx = (x - this.gx0) / this.cell, gz = (z - this.gz0) / this.cell, i = Math.floor(gx), j = Math.floor(gz);
-    if (i < 0 || j < 0 || i >= this.gw - 1 || j >= this.gh - 1) return natural(x, z);
-    const fx = gx - i, fz = gz - j, h = this.height, k = j * this.gw + i;
-    return (h[k] * (1 - fx) + h[k + 1] * fx) * (1 - fz) + (h[k + this.gw] * (1 - fx) + h[k + this.gw + 1] * fx) * fz;
-  }
-  /** Distance from the centre line (metres) or Infinity when far from the road. */
-  roadDist(x: number, z: number) {
-    const gx = Math.round((x - this.gx0) / this.cell), gz = Math.round((z - this.gz0) / this.cell);
-    if (gx < 0 || gz < 0 || gx >= this.gw || gz >= this.gh) return Infinity;
-    const n = this.nearest[gz * this.gw + gx]; if (n < 0) return Infinity;
-    return Math.abs(locate(this.track, x, z, n, this.loc).lat);
-  }
-
-  private terrain() {
-    const t = this.track, cell = this.cell, gw = (this.gw = 601), gh = (this.gh = 421), lim = t.def.halfWidth + t.def.shoulder;
-    const near = (this.nearest = new Int32Array(gw * gh).fill(-1)), nd = new Float32Array(gw * gh).fill(1e9);
-    for (let i = 0; i < t.n; i++) { // stamp each track sample onto the grid cells around it
-      const cx = Math.round((t.px[i] - this.gx0) / cell), cz = Math.round((t.pz[i] - this.gz0) / cell), R = 18;
-      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
-        const x = cx + dx, z = cz + dz; if (x < 0 || z < 0 || x >= gw || z >= gh) continue;
-        const d = Math.hypot(this.gx0 + x * cell - t.px[i], this.gz0 + z * cell - t.pz[i]), k = z * gw + x;
-        if (d < nd[k]) { nd[k] = d; near[k] = i; }
-      }
-    }
-    const H = (this.height = new Float32Array(gw * gh)), pos = new Float32Array(gw * gh * 3), loc: Loc = { idx: 0, frac: 0, lat: 0 };
-    for (let z = 0; z < gh; z++) for (let x = 0; x < gw; x++) {
-      const k = z * gw + x, wx = this.gx0 + x * cell, wz = this.gz0 + z * cell; let h = natural(wx, wz);
-      if (near[k] >= 0) {
-        locate(t, wx, wz, near[k], loc);
-        const i = loc.idx, j = (i + 1) % t.n, a = Math.abs(loc.lat), edge = lim + 9;
-        const ry = t.py[i] + (t.py[j] - t.py[i]) * loc.frac + Math.max(-lim, Math.min(lim, loc.lat)) * t.bank[i];
-        h = ry - 0.7 + (h - (ry - 0.7)) * sstep(edge, edge + 55, a);
-      }
-      H[k] = h; pos[k * 3] = wx; pos[k * 3 + 1] = h; pos[k * 3 + 2] = wz;
-    }
-    const idx = new Uint32Array((gw - 1) * (gh - 1) * 6); let o = 0;
-    for (let z = 0; z < gh - 1; z++) for (let x = 0; x < gw - 1; x++) { const k = z * gw + x; idx[o++] = k; idx[o++] = k + gw; idx[o++] = k + 1; idx[o++] = k + 1; idx[o++] = k + gw; idx[o++] = k + gw + 1; }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
+function terrainMaterial() {
     const grass = set('aerial_grass_rock'), sand = set('aerial_beach_01'), rock = set('rock_face_03');
     const m = new THREE.MeshStandardNodeMaterial();
     const p = positionWorld.xz, y = positionWorld.y, ny = normalWorld.y;
@@ -129,24 +37,11 @@ export class World {
     m.colorNode = mix(mix(gcol, scol, sandW), rcol, rockW).mul(macro);
     m.roughnessNode = mix(mix(texture(grass.rough, p.div(9)).r, texture(sand.rough, p.div(14)).r, sandW), texture(rock.rough, p.div(26)).r, rockW);
     m.normalNode = normalMap(mix(mix(texture(grass.nor, p.div(9)), texture(sand.nor, p.div(14)), sandW), texture(rock.nor, p.div(26)), rockW));
-    const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; this.group.add(mesh);
-  }
+  return m;
+}
 
-  private road() {
-    const t = this.track, n = t.n, hw = t.def.halfWidth, lim = hw + t.def.shoulder;
-    const lats = [-(lim + 10), -lim, -(hw + 1.15), -hw, 0, hw, hw + 1.15, lim, lim + 10], dy = [-0.8, 0, 0.05, 0, 0, 0, 0.05, 0, -0.8], NL = lats.length;
-    const pos: number[] = [], uvs: number[] = [], kerb: number[] = [], idx: number[] = [];
-    for (let i = 0; i <= n; i++) {
-      const k = i % n, c = Math.abs(t.curv[k]) > 0.0032 ? 1 : 0;
-      for (let j = 0; j < NL; j++) {
-        const l = lats[j];
-        pos.push(t.px[k] - t.tz[k] * l, t.py[k] + Math.max(-lim, Math.min(lim, l)) * t.bank[k] + dy[j] + 0.02, t.pz[k] + t.tx[k] * l);
-        uvs.push(l, i * t.step); kerb.push(c);
-      }
-      if (i < n) for (let j = 0; j < NL - 1; j++) { const a = i * NL + j; idx.push(a, a + 1, a + NL, a + 1, a + NL + 1, a + NL); }
-    }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    g.setAttribute('kerb', new THREE.Float32BufferAttribute(kerb, 1)); g.setIndex(idx); g.computeVertexNormals();
+function roadMaterial(w: World) {
+  const t = w.track, hw = t.def.halfWidth;
     const asph = set('asphalt_04'), grass = set('aerial_grass_rock');
     const m = new THREE.MeshStandardNodeMaterial();
     const l = uv().x, s = uv().y, al = abs(l), auv = vec2(l, s).div(7);
@@ -162,46 +57,11 @@ export class World {
     m.colorNode = mix(mix(mix(verge, base, onRoad), vec3(0.82), paint), kcol, kz);
     m.roughnessNode = mix(float(0.95), texture(asph.rough, auv).r.mul(0.75).sub(worn.mul(0.5)), onRoad);
     m.normalNode = normalMap(mix(texture(grass.nor, vec2(l, s).div(6)), texture(asph.nor, auv), onRoad));
-    const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; this.group.add(mesh);
+  return m;
+}
 
-    // barriers on both sides: concrete with a painted top band
-    const prof = [[0, 0], [0.1, 0.28], [0.17, 0.86], [0.4, 0.86], [0.47, 0.28], [0.57, 0]], bp: number[] = [], bu: number[] = [], bi: number[] = [];
-    for (const side of [-1, 1]) {
-      const base0 = bp.length / 3;
-      for (let i = 0; i <= n; i++) {
-        const k = i % n;
-        for (let j = 0; j < prof.length; j++) { const lt = side * (lim + prof[j][0]); bp.push(t.px[k] - t.tz[k] * lt, t.py[k] + side * lim * t.bank[k] + prof[j][1], t.pz[k] + t.tx[k] * lt); bu.push(i * t.step, prof[j][1]); }
-        if (i < n) for (let j = 0; j < prof.length - 1; j++) { const a = base0 + i * prof.length + j, b = a + prof.length; if (side > 0) bi.push(a, b, a + 1, a + 1, b, b + 1); else bi.push(a, a + 1, b, a + 1, b + 1, b); }
-      }
-    }
-    const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3)); bg.setAttribute('uv', new THREE.Float32BufferAttribute(bu, 2)); bg.setIndex(bi); bg.computeVertexNormals();
-    const conc = set('concrete_wall_008'), bm = new THREE.MeshStandardNodeMaterial();
-    const stripe = step(0.5, fract(uv().x.div(12))), band = smoothstep(0.5, 0.56, uv().y);
-    bm.colorNode = mix(texture(conc.map, uv().div(2.5)).rgb.mul(0.85), mix(vec3(0.75, 0.06, 0.05), vec3(0.88), stripe), band.mul(0.9));
-    bm.roughnessNode = texture(conc.rough, uv().div(2.5)).r; bm.normalNode = normalMap(texture(conc.nor, uv().div(2.5)));
-    const bmesh = new THREE.Mesh(bg, bm); bmesh.castShadow = true; bmesh.receiveShadow = true; this.group.add(bmesh);
-  }
-
-  private sea() {
-    const g = new THREE.PlaneGeometry(9000, 9000, 1, 1); g.rotateX(-Math.PI / 2);
-    const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
-    const p = positionWorld.xz, tt = time.mul(0.6);
-    const w = (k: number, ax: number, az: number, sp: number) => sin(dot(p, vec2(ax, az)).mul(k).add(tt.mul(sp)));
-    const nx = w(0.21, 1, 0.3, 1.1).mul(0.05).add(w(0.83, -0.4, 1, 1.7).mul(0.035)).add(mx_noise_float(vec3(p.mul(0.9), tt)).mul(0.07));
-    const nz = w(0.17, 0.2, 1, 0.9).mul(0.05).add(w(0.67, 1, 0.6, 1.5).mul(0.035)).add(mx_noise_float(vec3(p.mul(0.9).add(31), tt)).mul(0.07));
-    m.normalNode = vec3(nx, nz, 1).normalize();
-    m.colorNode = vec3(0.012, 0.06, 0.085); m.roughnessNode = float(0.07);
-    const mesh = new THREE.Mesh(g, m); mesh.position.set(0, 0, 0); this.group.add(mesh);
-  }
-
-  private props() {
-    const t = this.track, q = this.eng.quality, lim = t.def.halfWidth + t.def.shoulder, group = this.group;
-    const std = (color: number, roughness = 0.8, metalness = 0) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness });
-    const place = (geo: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[], cols?: THREE.Color[], shadow = true) => {
-      const im = new THREE.InstancedMesh(geo, mat, mats.length); mats.forEach((mm, i) => { im.setMatrixAt(i, mm); if (cols) im.setColorAt(i, cols[i]); });
-      im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false; group.add(im); return im;
-    };
-    const M = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(sx, sy, sz));
+function props(W: World) {
+  const t = W.track, q = W.eng.quality, lim = W.lim, group = W.group, place = W.place.bind(W), pulse = W.pulse;
 
     // ---- palms along the seafront and street lamps ----
     const trunk = new THREE.CylinderGeometry(0.16, 0.26, 9, 8, 6); trunk.translate(0, 4.5, 0);
@@ -229,7 +89,7 @@ export class World {
     }
     place(trunk, std(0x6b5a48, 0.9), palmM); place(mergeGeometries(fronds)!, leaf, palmM);
     const pole = mergeGeometries([new THREE.CylinderGeometry(0.07, 0.11, 8, 8).translate(0, 4, 0), new THREE.BoxGeometry(0.1, 0.1, 2.4).translate(0, 8, 1.1)])!;
-    const head = new THREE.BoxGeometry(0.34, 0.1, 0.7).translate(0, 7.93, 2.2), glow = new THREE.MeshStandardNodeMaterial({ color: 0x222222 }); glow.emissiveNode = vec3(1, 0.78, 0.45).mul(this.pulse.mul(6).add(4));
+    const head = new THREE.BoxGeometry(0.34, 0.1, 0.7).translate(0, 7.93, 2.2), glow = new THREE.MeshStandardNodeMaterial({ color: 0x222222 }); glow.emissiveNode = vec3(1, 0.78, 0.45).mul(pulse.mul(6).add(4));
     place(pole, std(0x30343a, 0.5, 0.6), lampM); place(head, glow, lampM, undefined, false);
 
     // ---- forest on the hills ----
@@ -238,9 +98,9 @@ export class World {
     const bole = new THREE.CylinderGeometry(0.22, 0.34, 5, 6).translate(0, 2.5, 0);
     const treeM: THREE.Matrix4[] = [], treeC: THREE.Color[] = [], count = Math.round(3800 * q.detail);
     for (let k = 0, tries = 0; k < count && tries < count * 12; tries++) {
-      const x = -1250 + hash(tries, 11) * 2300, z = -1000 + hash(tries, 23) * 1150, h = this.heightAt(x, z), d = shore(x) - z;
-      if (d < 70 || h > 215 || this.roadDist(x, z) < lim + 5 || this.city(x, z) || vnoise(x / 60, z / 60) < 0.3) continue;
-      const sl = Math.abs(this.heightAt(x + 4, z) - h) + Math.abs(this.heightAt(x, z + 4) - h); if (sl > 5.5) continue;
+      const x = -1250 + hash(tries, 11) * 2300, z = -1000 + hash(tries, 23) * 1150, h = W.heightAt(x, z), d = shore(x) - z;
+      if (d < 70 || h > 215 || W.roadDist(x, z) < lim + 5 || cityZone(W, x, z) || vnoise(x / 60, z / 60) < 0.3) continue;
+      const sl = Math.abs(W.heightAt(x + 4, z) - h) + Math.abs(W.heightAt(x, z + 4) - h); if (sl > 5.5) continue;
       const sc = 0.8 + hash(tries, 5) * 0.9; treeM.push(M(x, h - 0.3, z, hash(tries, 9) * 6.28, sc, sc * (0.9 + hash(tries, 4) * 0.5), sc));
       treeC.push(new THREE.Color().setHSL(0.27 + hash(tries, 6) * 0.08, 0.5, 0.09 + hash(tries, 8) * 0.06)); k++;
     }
@@ -254,11 +114,11 @@ export class World {
     const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), bM: THREE.Matrix4[] = [], bC: THREE.Color[] = [];
     const tint = ['#d9d2c4', '#c9c2b8', '#e4ddd0', '#b8bcc2', '#d6c7b0', '#a9b4bd', '#e8e2d8', '#c7b9a8'];
     const tower = (x: number, z: number, w: number, d: number, h: number, ry: number, seed: number) => {
-      if (this.roadDist(x, z) < lim + 6 + Math.max(w, d) * 0.72) return;
-      bM.push(M(x, this.heightAt(x, z) - 1.5, z, ry, w, h + 1.5, d)); bC.push(new THREE.Color(tint[Math.floor(hash(seed, 2) * tint.length)]));
+      if (W.roadDist(x, z) < lim + 6 + Math.max(w, d) * 0.72) return;
+      bM.push(M(x, W.heightAt(x, z) - 1.5, z, ry, w, h + 1.5, d)); bC.push(new THREE.Color(tint[Math.floor(hash(seed, 2) * tint.length)]));
     };
     for (let x = -1380; x < 1150; x += 27 + hash(x, 1) * 9) for (let row = 0; row < 5; row++) {
-      const z = shore(x) - 66 - row * 34 - hash(x, row) * 6; if (!this.city(x, z)) continue;
+      const z = shore(x) - 66 - row * 34 - hash(x, row) * 6; if (!cityZone(W, x, z)) continue;
       tower(x, z, 20 + hash(x, row + 3) * 9, 20 + hash(x, row + 5) * 8, 26 + hash(x, row + 7) * 34 + (row > 0 ? hash(x, row + 9) * 40 : 0), 0, x * 7 + row);
     }
     const fac = new THREE.MeshStandardNodeMaterial();
@@ -285,8 +145,14 @@ export class World {
     const a = new THREE.Vector3(URCA.x, natural(URCA.x, URCA.z) + 3, URCA.z), b = new THREE.Vector3(SUGAR.x, natural(SUGAR.x, SUGAR.z) + 3, SUGAR.z), len = a.distanceTo(b);
     const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, len, 5), std(0x202124, 0.5, 0.8)); cable.position.copy(a).lerp(b, 0.5); cable.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); group.add(cable);
     for (const f of [0.32, 0.7]) { const car = new THREE.Mesh(new THREE.BoxGeometry(5, 3.4, 3.4), std(0xd9b32b, 0.4, 0.3)); car.position.copy(a).lerp(b, f).add(new THREE.Vector3(0, -2.6, 0)); car.lookAt(b); group.add(car); }
-  }
 
-  /** Flat coastal strip where the city stands. */
-  private city(x: number, z: number) { const d = shore(x) - z; return d > 58 && d < 240 && this.heightAt(x, z) < 19 && x < 780; }
 }
+
+
+export const RIO_DEF: WorldDef = {
+  id: 'rio', x0: -1500, z0: -1350, x1: 1500, z1: 750, cell: 5, natural,
+  sunDir: [-0.85, 0.2, 0.42], sunColor: 0xffc48a, fog: [0.6, 0.56, 0.58], fogNear: 400, fogFar: 9000, seaColor: [0.012, 0.06, 0.085],
+  terrainMaterial, roadMaterial, barrier: 'concrete', props,
+};
+export const makeRio = (eng: Engine, track: Track) => new World(eng, track, RIO_DEF);
+export { World };

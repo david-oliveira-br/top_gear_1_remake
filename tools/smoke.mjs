@@ -22,5 +22,13 @@ await page.click('.cities >> text=Rio de Janeiro'); await page.waitForTimeout(60
 await page.waitForTimeout(6000); await page.keyboard.down('ArrowUp'); await page.waitForTimeout(5000); await page.keyboard.up('ArrowUp');
 const sp = await page.evaluate('Math.abs(window.__app.session.me.car.vx) * 3.6'); if (!(sp > 30)) await fail('keyboard throttle did not move the car: ' + sp);
 console.log('time trial: drove to', Math.round(sp), 'km/h; fps', await page.evaluate('window.__fps'));
+// Big Sur: the point-to-point coast race, autopilot to the results screen (t= skips ahead), prize credited
+await page.goto('http://localhost:5174/?go=race&ev=coast-run&auto=1&t=150&rep=40'); await page.evaluate(() => localStorage.clear()); await page.reload();
+await page.waitForFunction('window.__ready', null, { timeout: 180000 });
+const ci = await info(); if (ci.track !== 'coast') await fail('coast world did not load: ' + JSON.stringify(ci));
+await page.waitForFunction('window.__info && window.__info.screen === "results"', null, { timeout: 120000 }).catch(() => {});
+let c = await info(); if (c.screen !== 'results') await fail('coast race did not reach the results screen: ' + JSON.stringify(c));
+if (!(c.money > 2500 && c.rep > 0)) await fail('coast: no prize banked: ' + JSON.stringify(c));
+console.log('coast race finished, place', c.place, 'money', c.money, 'rep', c.rep, 'fps', await page.evaluate('window.__fps'));
 if (errors.length) await fail('page errors');
 console.log('SMOKE OK'); await browser.close();

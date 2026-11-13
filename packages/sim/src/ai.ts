@@ -1,6 +1,7 @@
 import { steerLimit, type Car, type Input } from './car';
 import type { CarSpec } from './specs';
-import { smoothLoop, type Track } from './track';
+import { smoothTrack, type Track } from './track';
+import { FINISH_BEFORE_END } from './race';
 
 export interface Driver { name: string; /** pace 0.8..1.02 */ skill: number; /** 0..1 how hard they push past traffic */ aggression: number; /** 0..1, lower makes more mistakes */ consistency: number; }
 
@@ -13,24 +14,30 @@ export interface AiProfile {
 
 /** Racing line that cuts towards the inside of corners, with a speed profile the car can actually hold and brake for. */
 export function makeProfile(t: Track, spec: CarSpec, driver: Driver, seed: number): AiProfile {
-  const n = t.n, off = new Float64Array(n);
-  const wide = smoothLoop(t.curv, 14, 2);
+  const n = t.n, off = new Float64Array(n), open = t.open, wrap = (i: number) => (open ? Math.max(0, Math.min(n - 1, i)) : (i + n) % n);
+  const wide = smoothTrack(t, t.curv, 14, 2);
   for (let i = 0; i < n; i++) off[i] = Math.max(-(t.hw[i] - 2.2), Math.min(t.hw[i] - 2.2, wide[i] * 520));
-  const line = smoothLoop(off, 10, 2);
+  const line = smoothTrack(t, off, 10, 2);
   // curvature of the driven path
   const qx = new Float64Array(n), qz = new Float64Array(n);
   for (let i = 0; i < n; i++) { qx[i] = t.px[i] - t.tz[i] * line[i]; qz[i] = t.pz[i] + t.tx[i] * line[i]; }
   let k = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    const a = (i + n - 3) % n, b = (i + 3) % n, ux = qx[i] - qx[a], uz = qz[i] - qz[a], vx = qx[b] - qx[i], vz = qz[b] - qz[i];
+    const a = wrap(i - 3), b = wrap(i + 3), ux = qx[i] - qx[a], uz = qz[i] - qz[a], vx = qx[b] - qx[i], vz = qz[b] - qz[i];
     const lu = Math.hypot(ux, uz), lv = Math.hypot(vx, vz);
-    k[i] = Math.abs((ux * vz - uz * vx) / (lu * lv)) / ((lu + lv) / 2);
+    k[i] = lu < 1e-6 || lv < 1e-6 ? 0 : Math.abs((ux * vz - uz * vx) / (lu * lv)) / ((lu + lv) / 2);
   }
-  k = smoothLoop(k, 4, 2) as Float64Array<ArrayBuffer>;
+  k = smoothTrack(t, k, 4, 2) as Float64Array<ArrayBuffer>;
   const vt = new Float64Array(n), g = 9.81, grip = spec.mu * 0.9 * driver.skill, df = (0.5 * 1.2 * spec.cla) / spec.mass;
   for (let i = 0; i < n; i++) { const d = k[i] - grip * df; vt[i] = d > 1e-5 ? Math.min(110, Math.sqrt((grip * g) / d)) : 110; }
   const brake = Math.min(spec.mu * g * 0.8, spec.brake / spec.mass) * 0.8 * driver.skill;
-  for (let pass = 0; pass < 2; pass++) for (let i = n - 1; i >= 0; i--) { const nx = vt[(i + 1) % n]; vt[i] = Math.min(vt[i], Math.sqrt(nx * nx + 2 * brake * t.step)); }
+  if (open) {
+    // corners first (braking for them is the only slowing before the line), then a stop on real road after the finish line
+    for (let pass = 0; pass < 2; pass++) for (let i = n - 2; i >= 0; i--) vt[i] = Math.min(vt[i], Math.sqrt(vt[i + 1] * vt[i + 1] + 2 * brake * t.step));
+    const stopAt = t.len - 8, soft = brake * 0.75, from = Math.ceil((t.len - FINISH_BEFORE_END) / t.step);
+    for (let i = from; i < n; i++) vt[i] = Math.min(vt[i], Math.sqrt(2 * soft * Math.max(0, stopAt - i * t.step)));
+    for (let i = n - 2; i >= from; i--) vt[i] = Math.min(vt[i], Math.sqrt(vt[i + 1] * vt[i + 1] + 2 * brake * t.step));
+  } else for (let pass = 0; pass < 2; pass++) for (let i = n - 1; i >= 0; i--) { const nx = vt[(i + 1) % n]; vt[i] = Math.min(vt[i], Math.sqrt(nx * nx + 2 * brake * t.step)); }
   return { driver, off: line, vt, side: 0, lapse: 0, seed: seed >>> 0 || 1 };
 }
 
@@ -38,12 +45,12 @@ function rnd(p: AiProfile) { let s = p.seed; s ^= s << 13; s >>>= 0; s ^= s >>> 
 
 /** Decide the controls for one AI car this tick. `pace` scales its target speed (rubber banding, mistakes). */
 export function drive(c: Car, p: AiProfile, t: Track, others: Car[], pace: number, out: Input): Input {
-  const n = t.n, v = Math.hypot(c.vx, c.vy), i = c.loc.idx;
+  const n = t.n, v = Math.hypot(c.vx, c.vy), i = c.loc.idx, open = t.open, wrap = (k: number) => (open ? Math.min(n - 1, k) : k % n);
   // traffic: pick a side to pass on, or lift when boxed in
   let want = 0, block = 0;
   for (const o of others) {
     if (o === c) continue;
-    let ds = ((o.loc.idx - i + n) % n) * t.step; if (ds > t.len / 2) ds -= t.len;
+    let ds = open ? (o.loc.idx - i) * t.step : ((o.loc.idx - i + n) % n) * t.step; if (!open && ds > t.len / 2) ds -= t.len;
     const dl = o.loc.lat - c.loc.lat, closing = v - o.vx;
     if (ds > 1 && ds < 10 + v * 0.55 && Math.abs(dl) < 2.6 && closing > -2) {
       const room = t.hw[i] - 1.3, goRight = o.loc.lat < 0 ? 1 : -1;
@@ -57,7 +64,7 @@ export function drive(c: Car, p: AiProfile, t: Track, others: Car[], pace: numbe
   const k = pace * (p.lapse > 0 ? 0.93 : 1);
 
   // steer towards a point on the line ahead
-  const ahead = 7 + v * 0.42, ti = (i + Math.round(ahead / t.step)) % n;
+  const ahead = 7 + v * 0.42, ti = wrap(i + Math.round(ahead / t.step));
   const lim = t.hw[ti] - 1.2, lat = Math.max(-lim, Math.min(lim, p.off[ti] + p.side));
   const gx = t.px[ti] - t.tz[ti] * lat - c.x, gz = t.pz[ti] + t.tx[ti] * lat - c.z;
   const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), lx = gx * ct + gz * st, ly = -gx * st + gz * ct;
@@ -65,12 +72,12 @@ export function drive(c: Car, p: AiProfile, t: Track, others: Car[], pace: numbe
   out.steer = Math.max(-1, Math.min(1, delta / steerLimit(c.spec, v)));
 
   // speed: look a little ahead so braking starts in time
-  const si = (i + Math.round((v * 0.3) / t.step)) % n, target = Math.min(p.vt[i], p.vt[si]) * k * (1 - block * 0.25);
+  const si = wrap(i + Math.round((v * 0.3) / t.step)), target = Math.min(p.vt[i], p.vt[si]) * k * (1 - block * 0.25);
   const err = target - v, sliding = Math.max(c.slipR, c.slipF * 0.8);
   out.throttle = err > 0 ? Math.min(1, 0.25 + err * 0.5) * (sliding > 0.7 ? 0.45 : 1) * (c.spin > 0.2 ? 0.6 : 1) : 0;
   out.brake = err < -0.5 ? Math.min(1, -err * 0.6) : 0;
   out.handbrake = false; out.shift = 0;
-  const straight = Math.abs(t.curv[i]) < 0.002 && Math.abs(t.curv[(i + 40) % n]) < 0.004;
+  const straight = Math.abs(t.curv[i]) < 0.002 && Math.abs(t.curv[wrap(i + 40)]) < 0.004;
   out.nitro = straight && err > 6 && v > 30 && c.nitro > (c.nitroOn ? 0 : c.spec.nitroTank * 0.5);
   return out;
 }

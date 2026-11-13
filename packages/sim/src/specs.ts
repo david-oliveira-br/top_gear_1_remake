@@ -27,8 +27,8 @@ export interface Tuning { /** final drive scale: <1 longer gearing, >1 shorter *
 export const defaultTuning = (): Tuning => ({ gearing: 1, wing: 0.5, bias: 0.62 });
 
 export const BASE: CarSpec = {
-  mass: 1380, wheelbase: 2.62, cgFront: 1.27, cgHeight: 0.52, inertia: 2100,
-  wheelR: 0.335, halfW: 0.95, halfL: 2.2,
+  mass: 1380, wheelbase: 2.54, cgFront: 1.22, cgHeight: 0.52, inertia: 2100,
+  wheelR: 0.31, halfW: 0.94, halfL: 2.21,
   torque: 350, redline: 7400, idle: 950, boost: 0, lag: 0.45,
   gears: [3.25, 2.05, 1.48, 1.14, 0.92, 0.77], final: 3.7, shiftTime: 0.28, eff: 0.88,
   mu: 1.08, brake: 10500, brakeBias: 0.62,

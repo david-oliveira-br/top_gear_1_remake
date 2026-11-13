@@ -5,7 +5,7 @@ export interface City { id: string; name: string; country: string; lat: number; 
 
 export const CITIES: City[] = [
   { id: 'rio', name: 'Rio de Janeiro', country: 'Brasil', lat: -22.95, lon: -43.21, landmark: 'Cristo Redentor', rep: 0, ready: true },
-  { id: 'la', name: 'Los Angeles', country: 'EUA', lat: 34.05, lon: -118.24, landmark: 'Letreiro nas colinas', rep: 120, ready: false },
+  { id: 'bigsur', name: 'Big Sur', country: 'EUA', lat: 36.27, lon: -121.81, landmark: 'Ponte em arco e farol', rep: 30, ready: true },
   { id: 'london', name: 'Londres', country: 'Reino Unido', lat: 51.5, lon: -0.12, landmark: 'Torre do relógio', rep: 220, ready: false },
   { id: 'rome', name: 'Roma', country: 'Itália', lat: 41.89, lon: 12.49, landmark: 'Coliseu', rep: 320, ready: false },
   { id: 'bergen', name: 'Bergen', country: 'Noruega', lat: 60.39, lon: 5.32, landmark: 'Fiordes', rep: 420, ready: false },
@@ -41,6 +41,11 @@ export const EVENTS: RaceEvent[] = [
     prize: [14000, 9000, 6500, 4500, 3000, 2000, 1200, 800], fame: [60, 40, 28, 18, 12, 8, 4, 2] },
   { id: 'rio-rival', city: 'rio', track: 'rio', kind: 'rival', name: 'O Rei da Orla', blurb: 'Vença o dono da cidade para abrir as portas do mundo.', laps: 3, rep: 110,
     rivals: field(2, [12], D('Rei da Orla', 0.97, 0.9, 0.97)), prize: [25000, 3000], fame: [120, 10] },
+  { id: 'coast-run', city: 'bigsur', track: 'coast', kind: 'grid', name: 'Corrida da Costa', blurb: 'Seis quilômetros de falésia, ponte e grampos. Largada na estrada, chegada no farol.', laps: 1, rep: 30,
+    rivals: [...field(1, [1, 5, 3], D('Wyatt', 0.91, 0.6, 0.8), D('Marina', 0.895, 0.5, 0.85), D('Cole', 0.88, 0.8, 0.6)), ...field(0, [8, 6, 2, 7], D('Sierra', 0.865, 0.4, 0.8), D('Hank', 0.85, 0.7, 0.6), D('Josie', 0.835, 0.5, 0.7), D('Rusty', 0.815, 0.6, 0.5))],
+    prize: [9000, 6200, 4400, 3000, 2000, 1300, 850, 550], fame: [40, 27, 18, 12, 8, 5, 3, 1] },
+  { id: 'coast-trial', city: 'bigsur', track: 'coast', kind: 'trial', name: 'Sprint do Farol', blurb: 'Estrada livre até o farol. Só você, o oceano e o cronômetro.', laps: 1, rep: 30,
+    rivals: [], prize: [6500, 3800, 1900, 500], fame: [30, 18, 9, 1], medals: [162, 170, 181] },
 ];
 
 export interface Career {
@@ -60,7 +65,7 @@ export function buyPart(c: Career, p: PartId): boolean {
 }
 
 export const eventOpen = (c: Career, e: RaceEvent) => c.rep >= e.rep;
-export const cityOpen = (c: Career, city: City) => city.ready && c.rep >= city.rep && (city.id === 'rio' || c.results['rio-rival']?.place === 1);
+export const cityOpen = (c: Career, city: City) => city.ready && c.rep >= city.rep && (city.id === 'rio' || city.id === 'bigsur' || c.results['rio-rival']?.place === 1);
 
 /** Trial result: 1 gold, 2 silver, 3 bronze, 4 none. */
 export function medal(e: RaceEvent, bestTicks: number) {
