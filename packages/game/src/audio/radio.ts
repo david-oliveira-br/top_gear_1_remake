@@ -1,11 +1,23 @@
-export interface Station { id: string; name: string; url: string; site: string; genres: string; note: string; }
+export interface Station { id: string; name: string; url: string; site: string; genres: string; note: string; /** short label for the HUD */ tag: string; /** what the station says about its music, shown in options */ about: string; }
 /**
- * Stations offered in the game. MELODEATH.AI is a non-commercial art project whose tracks are generated with Suno; it
- * publishes no terms of use, so the game treats it as personal, non-commercial listening and credits it on screen.
+ * Stations offered in the game. All play AI-made music, are open streams that allow cross-origin playback, and state no
+ * ban on third-party players (checked in November 2026). None publishes terms that grant embedding rights either, so the
+ * game treats them as personal, non-commercial listening and credits the station on screen. Stations whose terms forbid
+ * rebroadcast (London AI Radio, MusicRadio.ai) are deliberately not listed.
  */
 export const STATIONS: Station[] = [
   { id: 'melodeath', name: 'MELODEATH.AI Radio', url: 'https://a7.asurahosting.com/listen/melodeath.ai_radio_station/radio.mp3', site: 'https://www.ai-metal-radio-station.nl/',
-    genres: 'melodic death, power, folk, viking, 80s e cyber metal', note: 'Metal gerado por IA, 24h' },
+    genres: 'melodic death, power, folk, viking, 80s e cyber metal', note: 'Metal gerado por IA, 24h', tag: 'metal gerado por IA',
+    about: 'Faixas geradas pelo Suno; projeto sem fins comerciais e sem termos de uso publicados.' },
+  { id: 'tuneria', name: 'Tuneria', url: 'https://tuneria.fm/flux/tuneria.mp3', site: 'https://tuneria.fm/flux',
+    genres: 'mistura de eletrônico, lo-fi, hip hop, rock e pop', note: 'Rádio comunitária de música criada com IA', tag: 'mix com hip hop · IA',
+    about: 'Faixas criadas com Suno, Udio e outras ferramentas por artistas da comunidade, cada uma assinada pelo autor. O site convida a tocar o stream em players e diretórios; não publica termos sobre uso em jogos.' },
+  { id: 'orbita24', name: 'ORBITA24', url: 'https://radio.orbita24.it/listen/orbita24/radio.mp3', site: 'https://orbita24.it/',
+    genres: 'pop e rock em italiano e inglês, baladas', note: 'Rock e pop 100% gerados por IA', tag: 'rock/pop gerado por IA',
+    about: 'Todas as músicas são criadas por IA para a estação, sem covers; sem termos de uso publicados.' },
+  { id: 'radium', name: 'RadiumFM World', url: 'https://stream.radiumfm.com/world', site: 'https://radiumfm.com/world',
+    genres: 'jazz, cabaré e R&B', note: 'Jazz gerado por IA', tag: 'jazz gerado por IA',
+    about: 'Músicas escritas por uma IA da própria estação (modelo ACE-Step, licença MIT) e revisadas à mão; sem termos de uso publicados para ouvintes.' },
 ];
 export const CUSTOM = 'custom';
 

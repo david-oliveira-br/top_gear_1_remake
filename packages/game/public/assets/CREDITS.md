@@ -20,3 +20,4 @@ Licensed CC0 1.0 (public domain), from [Grab3D](https://grab3d.com).
 | cars/1990s-sports-car.glb | 1990s sports car | https://grab3d.com/models/vehicles/1990s-sports-car/ |
 | cars/1980s-sports-car.glb | 1980s sports car | https://grab3d.com/models/vehicles/1980s-sports-car/ |
 | cars/sports-car-cockpit-light.glb | sports car cockpit (interior, cockpit view only) | https://grab3d.com/models/vehicles/sports-car-cockpit/ |
+Rádios (streams de terceiros tocados pelo navegador do jogador, fora do repositório): [Tuneria](https://tuneria.fm/flux), [ORBITA24](https://orbita24.it/), [RadiumFM World](https://radiumfm.com/world).

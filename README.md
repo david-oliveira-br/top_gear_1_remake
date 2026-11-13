@@ -43,11 +43,13 @@ Use um navegador recente (Chrome/Edge). Em notebooks com duas placas de vídeo, 
   o rival da cidade. As outras cidades aparecem bloqueadas (fase 2).
 - **Gráficos**: céu HDR, sol com sombras, oclusão ambiente, bloom, desfoque de movimento, pintura com verniz,
   quatro níveis de qualidade.
-- **Som**: motor sintetizado e rádio online. A estação padrão é a **MELODEATH.AI Radio** (metal 24h gerado por IA
-  com o Suno, [site](https://www.ai-metal-radio-station.nl/)); em Opções dá para colar outro stream. Se a rádio cair,
-  o jogo volta sozinho para a trilha sintetizada. Atenção: a estação é um projeto sem fins comerciais e não publica
-  termos de uso nem autorização de incorporação; o jogo a trata como audição pessoal. Para publicar ou vender o
-  jogo, peça permissão a `signal@melodeath.ai` ou troque a fonte. As rádios SomaFM e similares proíbem uso em jogos.
+- **Som**: motor sintetizado e rádio online de música feita por IA, trocável durante a corrida com **R** (ou ←/→ do
+  direcional): MELODEATH.AI (metal, padrão), Tuneria (mix com hip hop, eletrônico, rock), ORBITA24 (rock/pop) e
+  RadiumFM World (jazz), mais a trilha sintetizada do jogo e um campo para colar outro stream. Se a rádio cair, o jogo
+  volta para a trilha sintetizada. Nenhuma dessas estações publica termos que autorizem uso em jogos (as que proíbem,
+  como a MusicRadio.ai e a London AI Radio, ficaram de fora); o jogo trata como audição pessoal e não comercial e mostra
+  o nome da estação. Para publicar ou vender o jogo, peça permissão às estações ou troque a fonte. Não há rádio de surf
+  music gerada por IA com stream aberto.
 
 ## Estrutura
 

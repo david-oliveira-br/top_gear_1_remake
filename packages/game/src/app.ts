@@ -70,6 +70,15 @@ export class App {
     if (this.settings.radioOn && this.radio.url && !this.radioDown) { this.audio.stopMusic(); if (!this.radio.el) this.radio.play(this.audio.ctx, this.audio.master); }
     else { this.radio.stop(); this.audio.play(name); }
   }
+  /** Next/previous station; the last stop is the built-in soundtrack. */
+  private cycleStation(dir: number) {
+    const ids = [...STATIONS.map((x) => x.id), 'game'];
+    const cur = this.settings.radioOn && !this.radioDown ? Math.max(0, ids.indexOf(this.radio.station)) : ids.length - 1;
+    const id = ids[(cur + dir + ids.length) % ids.length], mname = this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title';
+    if (id === 'game') { this.settings.radioOn = false; this.radio.stop(); this.audio.play(mname); this.camTag('Trilha do jogo', '♪ '); }
+    else { this.settings.radioOn = true; this.radioDown = false; this.radio.choose(id); this.music(mname); this.camTag(this.radio.name, '♪ '); }
+    saveSettings(this.settings);
+  }
   private radioDown = false; private bar!: HTMLElement; private barT = 0;
   /** Always-visible music status, with a button to start audio when the browser has not allowed it yet. */
   private musicBar() {
@@ -79,14 +88,14 @@ export class App {
       let text = '', btn = '';
       if (!ok) { text = '♪ Música desligada pelo navegador'; btn = '▶ Ativar música'; }
       else if (!this.settings.radioOn || this.radioDown) text = '♪ Trilha do jogo' + (r.error ? ' · ' + r.error + (r.detail ? ' (' + r.detail + ')' : '') : '');
-      else if (r.playing) text = '♪ ' + r.name + ' · ao vivo';
+      else if (r.playing) text = '♪ ' + r.name + (r.current ? ' · ' + r.current.tag : '') + ' · ao vivo  (R troca)';
       else text = '♪ Conectando à rádio…';
       const key = text + btn; if (this.bar.dataset.k === key) return; this.bar.dataset.k = key;
       this.bar.replaceChildren(text, ...(btn ? [h('button.pri', { onclick: () => { a.unlock(); void a.ctx?.resume(); this.radioDown = false; this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); } }, btn)] : []));
     };
     setInterval(() => { draw(); this.bar.style.display = this.screen === 'race' && this.radio.playing && this.audio.ctx?.state === 'running' ? 'none' : ''; }, 400); draw();
   }
-  private radioChip() { const el = this.hud.radio; if (el) el.textContent = this.radio.playing ? '♪ ' + this.radio.name + (this.radio.current ? ' · metal gerado por IA' : '') : this.radio.error ? '♪ ' + this.radio.error : this.settings.radioOn ? '♪ Conectando à rádio…' : '♪ Trilha Redline'; }
+  private radioChip() { const el = this.hud.radio; if (el) el.textContent = this.radio.playing ? '♪ ' + this.radio.name + (this.radio.current ? ' · ' + this.radio.current.tag : '') : this.radio.error ? '♪ ' + this.radio.error : this.settings.radioOn ? '♪ Conectando à rádio…' : '♪ Trilha Redline'; }
   private topBar(title: string, back: () => void, extra: HTMLElement[] = []) {
     return h('div.top', null, h('h2', null, title), h('div.chip', { html: `Reputação <b>${this.career.rep}</b>` }), h('div.chip', { html: `<b>${money(this.career.money)}</b>` }), ...extra, h('button', { onclick: back }, 'Voltar'));
   }
@@ -196,7 +205,7 @@ export class App {
     const url = h<'input'>('input', { type: 'text', placeholder: 'https://… endereço do stream (MP3/AAC)', value: r.url }), nm = h<'input'>('input', { type: 'text', placeholder: 'Nome da rádio', value: r.name });
     const row = (label: string, el: HTMLElement) => h('label.row', null, h('span', null, label), el);
     const about = h('p', { style: { color: 'var(--dim)', fontSize: '13px', margin: '4px 0 8px' } }), custom = h('div', { style: { display: r.station === CUSTOM ? '' : 'none' } }, url, h('div', { style: { height: '6px' } }), nm);
-    const info = () => { const st = r.current; about.replaceChildren(...(st ? [`${st.note}: ${st.genres}. Faixas geradas por IA (Suno); o projeto é sem fins comerciais e não publica termos de uso, então o jogo a trata como audição pessoal. `, h('a', { href: st.site, target: '_blank', rel: 'noopener', style: { color: 'var(--acc2)' } }, 'Site da rádio'), '.'] : ['Cole o endereço de stream (MP3/AAC) de uma rádio que permita tocar em sites de terceiros.'])); };
+    const info = () => { const st = r.current; about.replaceChildren(...(st ? [`${st.note}: ${st.genres}. ${st.about} O jogo trata isso como audição pessoal e não comercial. `, h('a', { href: st.site, target: '_blank', rel: 'noopener', style: { color: 'var(--acc2)' } }, 'Site da rádio'), '.'] : ['Cole o endereço de stream (MP3/AAC) de uma rádio que permita tocar em sites de terceiros.'])); };
     info();
     this.ui.append(h('div.center.panel', null, h('h2', null, 'Opções'),
       row('Qualidade gráfica', h('select', { onchange: (e: Event) => { s.quality = (e.target as HTMLSelectElement).value; saveSettings(s); location.reload(); } }, ...QUALITIES.map((q) => h('option', { value: q.id, selected: q.id === this.eng.quality.id }, q.label)))),
@@ -263,7 +272,7 @@ export class App {
     if (t.open) this.mapPath.push(this.mapXY(t.px[t.n - 1], t.pz[t.n - 1]));
   }
   private camTagT = 0;
-  private camTag(text: string) { this.ui.querySelector('.camtag')?.remove(); const e = h('div.hint.camtag', { style: { bottom: 'auto', top: '22%', fontSize: '22px', color: '#fff', fontFamily: 'var(--head)', letterSpacing: '.1em', textTransform: 'uppercase' } }, 'Câmera · ' + text); this.ui.append(e); clearTimeout(this.camTagT); this.camTagT = window.setTimeout(() => e.remove(), 1400); }
+  private camTag(text: string, prefix = 'Câmera · ') { this.ui.querySelector('.camtag')?.remove(); const e = h('div.hint.camtag', { style: { bottom: 'auto', top: '22%', fontSize: '22px', color: '#fff', fontFamily: 'var(--head)', letterSpacing: '.1em', textTransform: 'uppercase' } }, prefix + text); this.ui.append(e); clearTimeout(this.camTagT); this.camTagT = window.setTimeout(() => e.remove(), 1400); }
   private mapW = 380; private mapH = 380;
   private mapXY: (x: number, z: number) => [number, number] = () => [0, 0];
   private say(text: string, secs = 1.6, color = '#fff') { const m = this.hud.msg; if (!m) return; m.textContent = text; m.style.color = color; m.classList.add('on'); this.msgT = secs; }
@@ -272,6 +281,7 @@ export class App {
     const s = this.session!, r = s.race, me = s.me, c = me.car, H = this.hud, a = this.audio;
     if (this.controls.hit('Escape') || this.controls.padHit(9)) this.pause(!this.paused);
     if (this.controls.hit('KeyP')) this.togglePhoto();
+    if (!this.paused && !this.photo) { if (this.controls.padHit(15)) this.cycleStation(1); else if (this.controls.padHit(14)) this.cycleStation(-1); }
     const camNext = this.controls.hit('KeyC'), camPad = this.controls.padHit(8);
     if ((camNext || camPad) && !this.photo) { const i = CAM_CYCLE.indexOf(s.cam); s.cam = CAM_CYCLE[(i + 1) % CAM_CYCLE.length]; this.settings.cam = s.cam as Settings['cam']; saveSettings(this.settings); this.camTag(CAM_NAMES[s.cam]); }
     s.lookBack = this.controls.isDown('KeyB') || !!this.controls.pad?.buttons[11]?.pressed;
@@ -317,7 +327,7 @@ export class App {
   private padMenu() {
     const c = this.controls, p = c.pad;
     if (!!p !== this.padSeen) { this.padSeen = !!p; this.ui.querySelector('.padchip')?.remove(); if (p) { const el = h('div.chip.padchip', null, '🎮 ' + (/xbox|xinput/i.test(p.id) ? 'Controle Xbox' : /dualshock|dualsense|054c|wireless controller/i.test(p.id) ? 'Controle PlayStation' : 'Controle') + ' conectado'); this.ui.append(el); setTimeout(() => el.remove(), 4000); } }
-    if (!p) return;
+    if (!p || (this.screen === 'race' && !this.paused)) return;
     const ay = p.axes[1] ?? 0, ax = p.axes[0] ?? 0, stick = Math.abs(ay) > 0.6 ? Math.sign(ay) : Math.abs(ax) > 0.6 ? Math.sign(ax) : 0, moved = stick !== 0 && this.stickWas === 0; this.stickWas = stick;
     const next = c.padHit(13) || c.padHit(15) || (moved && stick > 0), prev = c.padHit(12) || c.padHit(14) || (moved && stick < 0), ok = c.padHit(0), back = c.padHit(1);
     if (this.screen === 'race' && !this.paused) return;
@@ -362,6 +372,7 @@ export class App {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
     const eng = this.eng, cam = eng.camera;
     this.controls.read(dt); this.padMenu();
+    if (this.screen !== 'options' && this.controls.hit('KeyR')) this.cycleStation(1);
     if (this.screen === 'race' || (this.screen === 'results' && this.session)) {
       if (this.screen === 'race') this.raceFrame(dt); else { this.session!.cam = 'orbit'; this.session!.orbit += dt * 0.25; this.session!.update(dt, null); }
     } else if (this.screen === 'map') { this.globe.update(dt, this.labels); eng.blur.value = 0; }
