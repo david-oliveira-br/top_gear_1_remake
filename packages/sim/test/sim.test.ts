@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE, RIO, COAST, COAST_BRIDGE, FINISH_BEFORE_END, TRACKS, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, CITIES, cityOpen, pointAt, medal, type Driver, type Parts } from '../src/index';
+import { BASE, RIO, COAST, COAST_BRIDGE, FINISH_BEFORE_END, TRACKS, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, CITIES, cityOpen, pointAt, medal, type Driver, type Parts, type WeatherKind, WEATHER, pickWeather, allowedWeather } from '../src/index';
 
 const track = buildTrack(RIO);
 const ace: Driver = { name: 'ace', skill: 0.97, aggression: 0.5, consistency: 1 };
@@ -123,5 +123,48 @@ describe('career', () => {
     expect(buyPart(c, 'engine')).toBe(true); expect(c.parts.engine).toBe(1); expect(c.money).toBe(4500);
     expect(settle(c, EVENTS[0], 1, 5900).money).toBeLessThan(3000);
     expect(medal(EVENTS[1], 79 * 60)).toBe(1); expect(medal(EVENTS[1], 200 * 60)).toBe(4);
+  });
+});
+
+describe('weather', () => {
+  const lap = (w: WeatherKind) => {
+    const r = createRace(track, [{ spec: BASE, driver: ace, name: 'a', paint: 0 }], 2, 3, 0, w);
+    let hits = 0;
+    for (let k = 0; k < 60 * 500 && !r.racers[0].finished; k++) { stepRace(r, [null]); if (r.racers[0].car.hit > 3) hits++; }
+    return { r, hits, best: r.racers[0].best / 60 };
+  };
+  it('wet laps are slower but clean; storm slower than rain; snow slower still', () => {
+    const res = Object.fromEntries((['clear', 'overcast', 'rain', 'storm', 'fog', 'snow'] as WeatherKind[]).map((w) => [w, lap(w)])) as Record<WeatherKind, ReturnType<typeof lap>>;
+    console.log('rio lap by weather', Object.entries(res).map(([k, v]) => `${k} ${v.best.toFixed(2)} (hits ${v.hits})`).join(', '));
+    const dry = soloLap(noParts()).best; expect(res.clear.best).toBeCloseTo(dry, 6); expect(res.overcast.best).toBeCloseTo(dry, 6);
+    expect(res.rain.best).toBeGreaterThan(res.clear.best); expect(res.rain.hits).toBe(0);
+    expect(res.storm.best).toBeGreaterThan(res.rain.best); expect(res.storm.hits).toBe(0);
+    expect(res.snow.best).toBeGreaterThan(res.storm.best); expect(res.snow.r.racers[0].finished).toBe(true);
+    expect(res.fog.best).toBeGreaterThan(res.clear.best); expect(res.fog.hits).toBe(0);
+    expect(res.rain.r.grip).toBe(WEATHER.rain.grip); expect(res.rain.r.weather).toBe('rain');
+  });
+  it('pickWeather respects each track list and is deterministic', () => {
+    for (const def of [RIO, COAST]) {
+      const allowed = allowedWeather(def), seen = new Set<string>();
+      for (let s = 0; s < 500; s++) { const w = pickWeather(def, s); expect(allowed).toContain(w); expect(pickWeather(def, s)).toBe(w); seen.add(w); }
+      expect(seen.size).toBe(allowed.length);
+      expect(allowed).not.toContain('snow');
+    }
+    expect(allowedWeather(COAST)).not.toContain('storm');
+  });
+  it('is deterministic with weather', () => {
+    const run = () => { const r = createRace(track, [{ spec: BASE, driver: ace, name: 'a', paint: 0 }, { spec: BASE, driver: { ...ace, skill: 0.9 }, name: 'b', paint: 1 }], 1, 5, 0.5, 'rain'); for (let k = 0; k < 3000; k++) stepRace(r, [null, null]); return r.racers.map((q) => [q.car.x, q.car.z, q.car.vx, q.dist]); };
+    expect(run()).toEqual(run());
+  });
+  it('coast in rain: solo ace finishes cleanly and stops before the end', () => {
+    const coast = buildTrack(COAST), out: string[] = [];
+    for (const w of ['clear', 'fog', 'rain'] as WeatherKind[]) {
+      const r = createRace(coast, [{ spec: BASE, driver: ace, name: 'a', paint: 0 }], 1, 3, 0, w), c = r.racers[0].car;
+      let hits = 0, maxIdx = 0;
+      for (let k = 0; k < 60 * 500 && !(r.racers[0].finished && Math.hypot(c.vx, c.vy) < 0.2); k++) { stepRace(r, [null]); if (c.hit > 1) hits++; maxIdx = Math.max(maxIdx, c.loc.idx + c.loc.frac); }
+      out.push(`${w} ${(r.racers[0].finishTick / 60).toFixed(2)} (hits ${hits})`);
+      if (w === 'rain') { expect(r.racers[0].finished).toBe(true); expect(hits).toBe(0); expect(maxIdx * coast.step).toBeLessThan(coast.len - 1); expect(Math.hypot(c.vx, c.vy)).toBeLessThan(0.3); }
+    }
+    console.log('coast solo by weather', out.join(', '));
   });
 });

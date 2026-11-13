@@ -29,7 +29,8 @@ Use um navegador recente (Chrome/Edge). Em notebooks com duas placas de vídeo, 
 | Nitro | Shift ou N | ○ / B ou R1 / RB |
 | Freio de mão | Espaço | L1 / LB |
 | Marchas (câmbio manual) | E / Q | △ / Y sobe, ↑ do direcional desce |
-| Câmera | C | Select |
+| Câmera (perseguição, distante, para-choque, capô, cockpit) | C | Select |
+| Olhar para trás (segure) | B | R3 (clique do analógico direito) |
 | Pausa · modo foto | Esc · P | Start |
 
 ## O que há

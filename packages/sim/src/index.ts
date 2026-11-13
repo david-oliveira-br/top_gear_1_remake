@@ -4,3 +4,4 @@ export * from './car';
 export * from './ai';
 export * from './race';
 export * from './career';
+export * from './weather';

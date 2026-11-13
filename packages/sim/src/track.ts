@@ -1,4 +1,6 @@
 /** A closed circuit sampled at a fixed step along its centre line. Units are metres; x = east, z = south, y = up. */
+import type { WeatherKind } from './weather';
+
 export interface TrackDef {
   id: string;
   name: string;
@@ -9,6 +11,8 @@ export interface TrackDef {
   halfWidth: number;
   /** flat run-off between the road edge and the barrier */
   shoulder: number;
+  /** weather this track can roll, with relative weights */
+  weather: { kind: WeatherKind; weight: number }[];
 }
 
 export interface Track {
@@ -133,6 +137,7 @@ export function pointAt(t: Track, s: number, lat: number): [number, number, numb
 /** Rio seafront circuit: a long straight by the beach, a climb into the hills and a fast descent back to the sea. */
 export const RIO: TrackDef = {
   id: 'rio', name: 'Circuito da Orla', halfWidth: 7, shoulder: 3.5,
+  weather: [{ kind: 'clear', weight: 5 }, { kind: 'overcast', weight: 2 }, { kind: 'rain', weight: 2 }, { kind: 'storm', weight: 1 }, { kind: 'fog', weight: 0.3 }],
   points: [
     [-600, 150, 3], [-200, 158, 3], [250, 150, 3], [560, 92, 4], [650, -90, 9], [560, -290, 20], [340, -372, 31],
     [130, -300, 35], [30, -160, 27], [-130, -96, 19], [-262, -214, 21], [-432, -330, 29], [-640, -284, 23],
@@ -147,6 +152,7 @@ export const RIO: TrackDef = {
  */
 export const COAST: TrackDef = {
   id: 'coast', name: 'Pacific Coast', open: true, halfWidth: 6.5, shoulder: 2.5,
+  weather: [{ kind: 'clear', weight: 4 }, { kind: 'fog', weight: 3 }, { kind: 'overcast', weight: 2 }, { kind: 'rain', weight: 1.5 }],
   points: [
     [0, 0, 22], [0, -70, 24], [0, -140, 28], [21, -233, 34], [35, -287, 35], [30, -342, 36], [15, -400, 40], [-1, -458, 45],
     [-2, -515, 50], [23, -566, 56], [46, -622, 60], [33, -680, 62], [-17, -767, 61], [-44, -867, 57], [-59, -952, 53], [-96, -1056, 49],

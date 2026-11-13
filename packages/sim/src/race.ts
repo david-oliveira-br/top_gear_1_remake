@@ -1,6 +1,7 @@
 import { drive, makeProfile, type AiProfile, type Driver } from './ai';
 import { collide, DT, makeCar, noInput, stepCar, type Car, type Input } from './car';
 import type { CarSpec } from './specs';
+import { WEATHER, type WeatherKind } from './weather';
 import { heightAt, locate, pointAt, type Track } from './track';
 
 export interface Entrant { spec: CarSpec; driver: Driver | null; name: string; paint: number; }
@@ -14,6 +15,7 @@ export interface Race {
   track: Track; laps: number; tick: number;
   /** ticks until the lights go out; racing while <= 0 */
   countdown: number; racers: Racer[]; over: boolean; rubber: number;
+  weather: WeatherKind; /** tyre grip multiplier from the weather */ grip: number;
 }
 
 export const COUNTDOWN = 240;
@@ -21,17 +23,18 @@ export const COUNTDOWN = 240;
 export const FINISH_BEFORE_END = 320;
 
 /** Entrants are listed in grid order, pole first. */
-export function createRace(track: Track, entrants: Entrant[], laps: number, seed = 1, rubber = 0.5): Race {
+export function createRace(track: Track, entrants: Entrant[], laps: number, seed = 1, rubber = 0.5, weather: WeatherKind = 'clear'): Race {
+  const grip = WEATHER[weather].grip;
   const racers = entrants.map((e, k) => {
-    const car = makeCar(k, e.spec);
+    const car = makeCar(k, e.spec); car.grip = grip;
     // closed loops start behind the line; point-to-point tracks start 30 m in, pole in front
     const s0 = track.open ? 30 + (entrants.length - 1 - k) * 7.5 : track.len - 10 - k * 7.5;
     const [x, y, z, yaw] = pointAt(track, s0, track.open ? (k % 2 ? 2.4 : -2.4) : (k % 2 ? 2.8 : -2.8));
     car.x = x; car.y = y; car.z = z; car.yaw = yaw; locate(track, x, z, -1, car.loc); car.y = heightAt(track, car.loc);
-    const ai = e.driver ? makeProfile(track, e.spec, e.driver, seed * 7919 + k * 104729) : null;
+    const ai = e.driver ? makeProfile(track, e.spec, e.driver, seed * 7919 + k * 104729, weather) : null;
     return { car, ai, name: e.name, paint: e.paint, dist: track.open ? s0 : -(10 + k * 7.5), lap: 0, lapStart: 0, lapTimes: [], best: 0, finished: false, finishTick: 0, place: k + 1 } as Racer;
   });
-  return { track, laps: track.open ? 1 : laps, tick: 0, countdown: COUNTDOWN, racers, over: false, rubber };
+  return { track, laps: track.open ? 1 : laps, tick: 0, countdown: COUNTDOWN, racers, over: false, rubber, weather, grip };
 }
 
 const aiIn = noInput();

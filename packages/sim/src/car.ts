@@ -18,19 +18,21 @@ export interface Car {
   /** accelerations in the body frame (for body roll / pitch), tyre slip 0..1 front and rear, wheelspin 0..1 */
   ax: number; ay: number; slipF: number; slipR: number; spin: number;
   offRoad: boolean; draft: number; hit: number;
+  /** weather grip multiplier on the tyres (1 = dry) */
+  grip: number;
 }
 
 export function makeCar(id: number, spec: CarSpec): Car {
   return {
     id, spec, auto: true, x: 0, z: 0, y: 0, yaw: 0, vx: 0, vy: 0, wz: 0, steer: 0, rpm: spec.idle, gear: 1, shiftT: 0, spool: 0, throttle: 0, brake: 0,
     nitro: spec.nitroTank, nitroOn: false, loc: { idx: 0, frac: 0, lat: 0 }, slopeS: 0, slopeL: 0, ax: 0, ay: 0, slipF: 0, slipR: 0, spin: 0,
-    offRoad: false, draft: 0, hit: 0,
+    offRoad: false, draft: 0, hit: 0, grip: 1,
   };
 }
 
 /** Largest useful steering angle at a given speed: enough to reach the grip limit, no more. */
-export function steerLimit(s: CarSpec, v: number) {
-  return Math.max(0.035, Math.min(0.56, Math.atan((s.wheelbase * s.mu * G * 1.1) / Math.max(1, v * v)) + 0.1));
+export function steerLimit(s: CarSpec, v: number, grip = 1) {
+  return Math.max(0.035, Math.min(0.56, Math.atan((s.wheelbase * s.mu * grip * G * 1.1) / Math.max(1, v * v)) + 0.1));
 }
 
 /** Lateral tyre force. `stiff` is the cornering stiffness at rest; load transfer and `keep` (grip left after braking or driving) change the peak, not the initial response. */
@@ -56,7 +58,7 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
   for (let k = 0; k < SUB; k++) {
     const v = Math.hypot(c.vx, c.vy), fwd = c.vx >= 0 ? 1 : -1;
     // steering
-    const lim = steerLimit(s, v), target = Math.max(-1, Math.min(1, inp.steer)) * lim;
+    const lim = steerLimit(s, v, c.grip), target = Math.max(-1, Math.min(1, inp.steer)) * lim;
     const rate = (2.2 + 1.6 * s.poise) * H * (0.35 + lim);
     c.steer += Math.max(-rate, Math.min(rate, target - c.steer));
     const cd = Math.cos(c.steer), sd = Math.sin(c.steer);
@@ -85,7 +87,7 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     const down = 0.5 * RHO * s.cla * v * v, w = s.mass * G + down;
     const shift = Math.max(-0.3 * w, Math.min(0.3 * w, (s.mass * c.ax * s.cgHeight) / L));
     const fzF = Math.max(0, (w * b) / L - shift), fzR = Math.max(0, (w * a) / L + shift);
-    const mu = s.mu * (c.offRoad ? 0.58 : 1);
+    const mu = s.mu * (c.offRoad ? 0.58 : 1) * c.grip;
 
     // longitudinal tyre forces (rear drive), limited by grip
     let fxR = drive, fxF = 0;

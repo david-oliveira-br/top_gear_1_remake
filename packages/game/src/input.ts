@@ -12,6 +12,7 @@ export class Controls {
   private k(...c: string[]) { return c.some((x) => this.keys.has(x)); }
   /** True once per key press. */
   hit(...c: string[]) { for (const x of c) if (this.pressed.has(x)) { this.pressed.delete(x); return true; } return false; }
+  isDown(...c: string[]) { return this.k(...c); }
   private padPrev: boolean[] = [];
   /** True once per gamepad button press. */
   padHit(i: number) { const p = this.pad, now = !!p?.buttons[i]?.pressed, was = this.padPrev[i]; this.padPrev[i] = now; return now && !was; }

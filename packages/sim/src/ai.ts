@@ -2,6 +2,7 @@ import { steerLimit, type Car, type Input } from './car';
 import type { CarSpec } from './specs';
 import { smoothTrack, type Track } from './track';
 import { FINISH_BEFORE_END } from './race';
+import { WEATHER, cautionFor, type WeatherKind } from './weather';
 
 export interface Driver { name: string; /** pace 0.8..1.02 */ skill: number; /** 0..1 how hard they push past traffic */ aggression: number; /** 0..1, lower makes more mistakes */ consistency: number; }
 
@@ -13,7 +14,7 @@ export interface AiProfile {
 }
 
 /** Racing line that cuts towards the inside of corners, with a speed profile the car can actually hold and brake for. */
-export function makeProfile(t: Track, spec: CarSpec, driver: Driver, seed: number): AiProfile {
+export function makeProfile(t: Track, spec: CarSpec, driver: Driver, seed: number, weather: WeatherKind = 'clear'): AiProfile {
   const n = t.n, off = new Float64Array(n), open = t.open, wrap = (i: number) => (open ? Math.max(0, Math.min(n - 1, i)) : (i + n) % n);
   const wide = smoothTrack(t, t.curv, 14, 2);
   for (let i = 0; i < n; i++) off[i] = Math.max(-(t.hw[i] - 2.2), Math.min(t.hw[i] - 2.2, wide[i] * 520));
@@ -28,9 +29,10 @@ export function makeProfile(t: Track, spec: CarSpec, driver: Driver, seed: numbe
     k[i] = lu < 1e-6 || lv < 1e-6 ? 0 : Math.abs((ux * vz - uz * vx) / (lu * lv)) / ((lu + lv) / 2);
   }
   k = smoothTrack(t, k, 4, 2) as Float64Array<ArrayBuffer>;
-  const vt = new Float64Array(n), g = 9.81, grip = spec.mu * 0.9 * driver.skill, df = (0.5 * 1.2 * spec.cla) / spec.mass;
-  for (let i = 0; i < n; i++) { const d = k[i] - grip * df; vt[i] = d > 1e-5 ? Math.min(110, Math.sqrt((grip * g) / d)) : 110; }
-  const brake = Math.min(spec.mu * g * 0.8, spec.brake / spec.mass) * 0.8 * driver.skill;
+  const wx = WEATHER[weather].grip, caution = cautionFor(weather);
+  const vt = new Float64Array(n), g = 9.81, grip = spec.mu * wx * 0.9 * driver.skill, df = (0.5 * 1.2 * spec.cla) / spec.mass;
+  for (let i = 0; i < n; i++) { const d = k[i] - grip * df; vt[i] = (d > 1e-5 ? Math.min(110, Math.sqrt((grip * g) / d)) : 110) * caution; }
+  const brake = Math.min(spec.mu * wx * g * 0.8, spec.brake / spec.mass) * 0.8 * driver.skill;
   if (open) {
     // corners first (braking for them is the only slowing before the line), then a stop on real road after the finish line
     for (let pass = 0; pass < 2; pass++) for (let i = n - 2; i >= 0; i--) vt[i] = Math.min(vt[i], Math.sqrt(vt[i + 1] * vt[i + 1] + 2 * brake * t.step));
@@ -69,12 +71,13 @@ export function drive(c: Car, p: AiProfile, t: Track, others: Car[], pace: numbe
   const gx = t.px[ti] - t.tz[ti] * lat - c.x, gz = t.pz[ti] + t.tx[ti] * lat - c.z;
   const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), lx = gx * ct + gz * st, ly = -gx * st + gz * ct;
   const delta = Math.atan2(2 * c.spec.wheelbase * ly, lx * lx + ly * ly);
-  out.steer = Math.max(-1, Math.min(1, delta / steerLimit(c.spec, v)));
+  out.steer = Math.max(-1, Math.min(1, delta / steerLimit(c.spec, v, c.grip)));
 
   // speed: look a little ahead so braking starts in time
   const si = wrap(i + Math.round((v * 0.3) / t.step)), target = Math.min(p.vt[i], p.vt[si]) * k * (1 - block * 0.25);
   const err = target - v, sliding = Math.max(c.slipR, c.slipF * 0.8);
-  out.throttle = err > 0 ? Math.min(1, 0.25 + err * 0.5) * (sliding > 0.7 ? 0.45 : 1) * (c.spin > 0.2 ? 0.6 : 1) : 0;
+  // on a slippery road the AI also caps the throttle so the rear tyres keep grip in reserve for cornering
+  out.throttle = err > 0 ? Math.min(c.grip, 0.25 + err * 0.5) * (sliding > 0.7 ? 0.45 : 1) * (c.spin > 0.2 ? 0.6 : 1) : 0;
   out.brake = err < -0.5 ? Math.min(1, -err * 0.6) : 0;
   out.handbrake = false; out.shift = 0;
   const straight = Math.abs(t.curv[i]) < 0.002 && Math.abs(t.curv[wrap(i + 40)]) < 0.004;

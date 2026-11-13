@@ -8,8 +8,8 @@ import { CAR_NAMES, CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
 import { Controls } from './input';
-import { Session, type Look } from './race/session';
-import { loadCareer, loadSettings, saveCareer, saveSettings } from './save';
+import { CAM_CYCLE, CAM_NAMES, Session, type CamMode, type Look } from './race/session';
+import { type Settings, loadCareer, loadSettings, saveCareer, saveSettings } from './save';
 import { clock, h, money } from './ui/dom';
 import { makeCoast } from './world/coast';
 import { makeRio } from './world/rio';
@@ -116,7 +116,7 @@ export class App {
     this.endSession(); this.showRio(); this.screen = 'title'; this.clear(); this.globe.show(false); this.placeShow(); this.orbitAuto = true; this.music('title');
     this.ui.append(h('div.title', null, h('h1', { html: 'REDLINE<br><span>HORIZON</span>' }), h('p', null, 'World Tour — comece no Rio, monte o seu carro e conquiste o mundo.'),
       h('div.menu', null, h('button.pri', { onclick: () => this.mapScreen() }, 'Carreira'), h('button', { onclick: () => this.garage() }, 'Garagem'), h('button', { onclick: () => this.options() }, 'Opções'))),
-      h('div.hint', null, 'Setas ou WASD dirigem · Shift nitro · Espaço freio de mão · P modo foto · controle PS/Xbox suportado'));
+      h('div.hint', null, 'Setas ou WASD dirigem · Shift nitro · Espaço freio de mão · C câmera · B olhar para trás · P modo foto · controle PS/Xbox suportado'));
   }
 
   // ---------- world map ----------
@@ -223,6 +223,7 @@ export class App {
     entrants.push({ spec: buildSpec(c.parts, c.tuning), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: c.paint }); looks.push(this.look());
     const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5));
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
+    const qc = this.q.get('cam') as CamMode | null; if (qc && CAM_CYCLE.includes(qc)) s.cam = qc; // capture helper: ?cam=chase|far|bumper|hood|cockpit
     if (ev.kind === 'trial' && c.ghost[ev.id]) s.setGhost(c.ghost[ev.id], { ...this.look(), paint: 4 }, 3);
     this.audio.setEngines(1); this.music('brazil');
     const H = this.hud, e = (cls: string, html = '') => h('div.' + cls, { html });
@@ -244,6 +245,8 @@ export class App {
     this.mapPath = []; for (let i = 0; i < t.n; i += 4) this.mapPath.push(this.mapXY(t.px[i], t.pz[i]));
     if (t.open) this.mapPath.push(this.mapXY(t.px[t.n - 1], t.pz[t.n - 1]));
   }
+  private camTagT = 0;
+  private camTag(text: string) { this.ui.querySelector('.camtag')?.remove(); const e = h('div.hint.camtag', { style: { bottom: 'auto', top: '22%', fontSize: '22px', color: '#fff', fontFamily: 'var(--head)', letterSpacing: '.1em', textTransform: 'uppercase' } }, 'Câmera · ' + text); this.ui.append(e); clearTimeout(this.camTagT); this.camTagT = window.setTimeout(() => e.remove(), 1400); }
   private mapW = 380; private mapH = 380;
   private mapXY: (x: number, z: number) => [number, number] = () => [0, 0];
   private say(text: string, secs = 1.6, color = '#fff') { const m = this.hud.msg; if (!m) return; m.textContent = text; m.style.color = color; m.classList.add('on'); this.msgT = secs; }
@@ -252,7 +255,9 @@ export class App {
     const s = this.session!, r = s.race, me = s.me, c = me.car, H = this.hud, a = this.audio;
     if (this.controls.hit('Escape') || this.controls.padHit(9)) this.pause(!this.paused);
     if (this.controls.hit('KeyP')) this.togglePhoto();
-    if (this.controls.hit('KeyC') || this.controls.padHit(8)) { s.cam = s.cam === 'chase' ? 'hood' : 'chase'; this.settings.cam = s.cam; saveSettings(this.settings); }
+    const camNext = this.controls.hit('KeyC'), camPad = this.controls.padHit(8);
+    if ((camNext || camPad) && !this.photo) { const i = CAM_CYCLE.indexOf(s.cam); s.cam = CAM_CYCLE[(i + 1) % CAM_CYCLE.length]; this.settings.cam = s.cam as Settings['cam']; saveSettings(this.settings); this.camTag(CAM_NAMES[s.cam]); }
+    s.lookBack = this.controls.isDown('KeyB') || !!this.controls.pad?.buttons[11]?.pressed;
     const frozen = this.paused || this.photo, inp = this.controls.out;
     if (this.photo) { s.cam = 'orbit'; if (!this.drag) s.orbit += inp.steer * dt * 1.5; else s.orbit = this.orbit; }
     s.update(frozen ? 0 : dt, me.ai ? null : inp);

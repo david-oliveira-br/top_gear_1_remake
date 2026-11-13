@@ -4,14 +4,19 @@ import { CarVisual } from '../car/visual';
 import type { Engine } from '../gfx/engine';
 import type { World } from '../world/base';
 
-export type CamMode = 'chase' | 'hood' | 'orbit';
+export type CamMode = 'chase' | 'far' | 'bumper' | 'hood' | 'cockpit' | 'orbit';
+/** The cycle the C key walks through (orbit is photo mode / results only). */
+export const CAM_CYCLE: CamMode[] = ['chase', 'far', 'bumper', 'hood', 'cockpit'];
+export const CAM_NAMES: Record<CamMode, string> = { chase: 'Perseguição', far: 'Perseguição distante', bumper: 'Para-choque', hood: 'Capô', cockpit: 'Cockpit', orbit: 'Órbita' };
 export interface Look { kind?: number; paint: number; finish?: number; wheels?: number; aero?: number; lower?: number; }
 
 /** One running race: steps the simulation at 60 Hz and poses cars and camera every frame. */
 export class Session {
   race: Race; visuals: CarVisual[] = []; player = 0; cam: CamMode = 'chase'; orbit = 0; time = 0; ghost: number[] = []; ghostCar: CarVisual | null = null;
   private acc = 0; private prev: number[][] = []; private camPos = new THREE.Vector3(); private camYaw = 0; private first = true; private fov = 62; private shake = 0;
-  private input: Input = noInput(); private tmp = new THREE.Vector3(); private look = new THREE.Vector3();
+  /** true while the look-back button is held; `lb` is the eased 0..1 turn */
+  lookBack = false; private lb = 0; private sx = 0; private sz = 0; private cockpitOn = false; private near = 0.3;
+  private input: Input = noInput(); private tmp = new THREE.Vector3(); private look = new THREE.Vector3(); private tmp2 = new THREE.Vector3(); private cp = new THREE.Vector3(); private up = new THREE.Vector3(0, 1, 0);
   /** recording of the player's path, 4 numbers per tick: x, y, z, yaw */
   record: number[] = []; onTick: ((s: Session) => void) | null = null;
 
@@ -63,26 +68,43 @@ export class Session {
     this.shake *= Math.exp(-dt * 6);
     const rough = (c.offRoad ? 0.5 : 0) + Math.max(0, sp - 55) * 0.006 + (c.nitroOn ? 0.25 : 0) + this.shake * 2.5;
     const jx = (Math.sin(this.time * 61) + Math.sin(this.time * 97)) * 0.012 * rough, jy = (Math.sin(this.time * 73) + Math.sin(this.time * 113)) * 0.012 * rough;
+    const vis = this.visuals[this.player], f = this.tmp2.set(Math.cos(yaw), 0, Math.sin(yaw)), cp = this.cp;
+    const ease = Math.min(1, dt * 4);
     if (this.cam === 'orbit') {
-      const d = 6.4; cam.position.set(v.position.x + Math.cos(this.orbit) * d, v.position.y + 1.25, v.position.z + Math.sin(this.orbit) * d); cam.lookAt(v.position.x, v.position.y + 0.65, v.position.z);
+      const d = 6.4; cp.set(v.position.x + Math.cos(this.orbit) * d, v.position.y + 1.25, v.position.z + Math.sin(this.orbit) * d); this.look.set(v.position.x, v.position.y + 0.65, v.position.z);
       this.fov = 38;
-    } else if (this.cam === 'hood') {
-      const f = this.tmp.set(Math.cos(yaw), 0, Math.sin(yaw));
-      cam.position.set(v.position.x + f.x * 0.35, v.position.y + 1.02 + jy, v.position.z + f.z * 0.35);
-      this.look.copy(cam.position).addScaledVector(f, 30); this.look.y -= 2.2 - c.slopeS * 30; cam.lookAt(this.look); this.fov += (68 + sp * 0.2 - this.fov) * Math.min(1, dt * 4);
+    } else if (this.cam === 'hood' || this.cam === 'bumper' || this.cam === 'cockpit') {
+      const cockpit = this.cam === 'cockpit';
+      // the head leans out of corners and back under acceleration
+      this.sx += (Math.max(-0.07, Math.min(0.07, -c.ay * 0.0016)) - this.sx) * ease; this.sz += (Math.max(-0.05, Math.min(0.05, -c.ax * 0.0011)) - this.sz) * ease;
+      vis.anchorWorld(this.cam === 'bumper' ? 'bumper' : this.cam === 'hood' ? 'hood' : 'head', cp, cockpit ? this.sx : 0, cockpit ? jy * 0.5 : jy, cockpit ? this.sz : 0);
+      this.look.copy(cp).addScaledVector(f, 30); this.look.y += c.slopeS * 30 - (cockpit ? 0.9 : this.cam === 'bumper' ? 0.2 : 1.7);
+      this.fov += ((cockpit ? 74 : this.cam === 'bumper' ? 72 : 68) + sp * 0.2 - this.fov) * Math.min(1, dt * 4);
     } else {
+      const far = this.cam === 'far';
       // chase: the camera's heading trails the car's, which shows the slide in corners
       let d = yaw - this.camYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      if (this.first) { this.camYaw = yaw; this.first = false; } else this.camYaw += d * Math.min(1, dt * (4.2 + sp * 0.03));
-      const back = 5.6 - Math.min(1.1, sp * 0.012) + (c.nitroOn ? 0.5 : 0), up = 1.95 - Math.min(0.35, sp * 0.004);
+      if (this.first) { this.camYaw = yaw; this.first = false; } else this.camYaw += d * Math.min(1, dt * (4.2 + sp * 0.03) * (far ? 0.7 : 1));
+      const back = (far ? 8.4 : 5.6) - Math.min(1.1, sp * 0.012) + (c.nitroOn ? 0.5 : 0), up = (far ? 3.0 : 1.95) - Math.min(0.35, sp * 0.004);
       this.tmp.set(v.position.x - Math.cos(this.camYaw) * back, v.position.y + up, v.position.z - Math.sin(this.camYaw) * back);
       const floor = this.world.heightAt(this.tmp.x, this.tmp.z) + 0.6; if (this.tmp.y < floor) this.tmp.y = floor;
-      this.camPos.copy(this.tmp); cam.position.set(this.camPos.x + jx, this.camPos.y + jy, this.camPos.z);
-      this.look.set(v.position.x + Math.cos(yaw) * 4.5, v.position.y + 1.05, v.position.z + Math.sin(yaw) * 4.5); cam.lookAt(this.look);
-      this.fov += (58 + Math.min(26, sp * 0.3) + (c.nitroOn ? 7 : 0) - this.fov) * Math.min(1, dt * 3);
+      this.camPos.copy(this.tmp); cp.set(this.camPos.x + jx, this.camPos.y + jy, this.camPos.z);
+      this.look.set(v.position.x + Math.cos(yaw) * (far ? 6 : 4.5), v.position.y + (far ? 1.2 : 1.05), v.position.z + Math.sin(yaw) * (far ? 6 : 4.5));
+      this.fov += ((far ? 54 : 58) + Math.min(26, sp * 0.3) * (far ? 0.7 : 1) + (c.nitroOn ? 7 : 0) - this.fov) * Math.min(1, dt * 3);
     }
+    // look back: swing to a rear camera just above and behind the tail, so the car's own wing and seats are not in the shot
+    this.lb += ((this.lookBack && this.cam !== 'orbit' ? 1 : 0) - this.lb) * Math.min(1, dt * 10);
+    if (this.lb > 0.002) {
+      const t = this.lb * this.lb * (3 - 2 * this.lb);
+      vis.anchorWorld('bumper', this.tmp, 0, 0.95, -4.7); this.look.sub(cp); cp.lerp(this.tmp, t);
+      this.look.applyAxisAngle(this.up, Math.PI * t).add(cp);
+    }
+    cam.position.copy(cp); cam.lookAt(this.look);
+    const cockpit = this.cam === 'cockpit', near = cockpit ? 0.07 : 0.3;
+    if (cockpit !== this.cockpitOn) { this.cockpitOn = cockpit; vis.setCockpit(cockpit); }
+    if (near !== this.near) { this.near = near; cam.near = near; cam.updateProjectionMatrix(); }
     if (Math.abs(cam.fov - this.fov) > 0.01) { cam.fov = this.fov; cam.updateProjectionMatrix(); }
-    this.eng.blur.value = this.cam === 'orbit' ? 0 : Math.min(0.75, 0.1 + sp * 0.006 + (c.nitroOn ? 0.25 : 0));
+    this.eng.blur.value = this.cam === 'orbit' ? 0 : cockpit ? 0.03 : Math.min(0.75, 0.1 + sp * 0.006 + (c.nitroOn ? 0.25 : 0));
     this.world.update(v.position);
   }
 }

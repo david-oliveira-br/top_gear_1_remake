@@ -43,4 +43,7 @@ for (const id of CARS) {
   console.log(id, await get(`https://grab3d.com/dl/${id}/${id}.glb`, `${OUT}cars/${id}.glb`));
   carCredits.push(`| cars/${id}.glb | ${id.replace(/-/g, ' ')} | https://grab3d.com/models/vehicles/${id}/ |`);
 }
+// First-person interior, drawn only for the player's car in the cockpit view
+console.log('sports-car-cockpit', await get('https://grab3d.com/dl/sports-car-cockpit/sports-car-cockpit-light.glb', `${OUT}cars/sports-car-cockpit-light.glb`));
+carCredits.push('| cars/sports-car-cockpit-light.glb | sports car cockpit (interior, cockpit view only) | https://grab3d.com/models/vehicles/sports-car-cockpit/ |');
 fs.writeFileSync(OUT + 'CREDITS.md', credits.concat(carCredits).join('\n') + '\n');
