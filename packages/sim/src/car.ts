@@ -32,7 +32,12 @@ export function makeCar(id: number, spec: CarSpec): Car {
 
 /** Largest useful steering angle at a given speed: enough to reach the grip limit, no more. */
 export function steerLimit(s: CarSpec, v: number, grip = 1) {
-  return Math.max(0.035, Math.min(0.56, Math.atan((s.wheelbase * s.mu * grip * G * 1.1) / Math.max(1, v * v)) + 0.1));
+  return Math.max(0.045, Math.min(0.6, Math.atan((s.wheelbase * s.mu * grip * G * 1.1) / Math.max(1, v * v)) + 0.085));
+}
+
+/** Steering angle as a fraction of the limit at this speed (for the steering wheel and the front wheels on screen). */
+export function steerNorm(s: CarSpec, v: number, grip: number, steer: number) {
+  return steer / steerLimit(s, v, grip);
 }
 
 /** Lateral tyre force. `stiff` is the cornering stiffness at rest; load transfer and `keep` (grip left after braking or driving) change the peak, not the initial response. */
@@ -59,7 +64,7 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     const v = Math.hypot(c.vx, c.vy), fwd = c.vx >= 0 ? 1 : -1;
     // steering
     const lim = steerLimit(s, v, c.grip), target = Math.max(-1, Math.min(1, inp.steer)) * lim;
-    const rate = (2.2 + 1.6 * s.poise) * H * (0.35 + lim);
+    const rate = (3.2 + 1.4 * s.poise) * (s.steerRate ?? 1) * H * (0.35 + lim);
     c.steer += Math.max(-rate, Math.min(rate, target - c.steer));
     const cd = Math.cos(c.steer), sd = Math.sin(c.steer);
 
@@ -90,7 +95,8 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     const mu = s.mu * (c.offRoad ? 0.58 : 1) * c.grip;
 
     // longitudinal tyre forces (rear drive), limited by grip
-    let fxR = drive, fxF = 0;
+    const df = s.driveFront ?? 0;
+    let fxR = drive * (1 - df), fxF = drive * df;
     const bf = brk * s.brake * s.brakeBias, br = brk * s.brake * (1 - s.brakeBias);
     const stopping = Math.abs(c.vx) > 0.3 ? -fwd : 0;
     // anti-lock with brake-force distribution: the rear keeps most of its grip for stability
@@ -99,16 +105,19 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     const capR = mu * fzR;
     let useR = capR > 1 ? Math.abs(fxR) / capR : 0;
     if (useR > 1) { spin = Math.max(spin, Math.min(1, useR - 1)); fxR = Math.sign(fxR) * capR * 0.94; useR = 1; }
-    const useF = mu * fzF > 1 ? Math.min(1, Math.abs(fxF) / (mu * fzF)) : 0;
+    const capF = mu * fzF;
+    if (df > 0 && capF > 1 && Math.abs(fxF) > capF) { spin = Math.max(spin, Math.min(1, Math.abs(fxF) / capF - 1)); fxF = Math.sign(fxF) * capF * 0.94; }
+    const useF = capF > 1 ? Math.min(1, Math.abs(fxF) / capF) : 0;
 
     // lateral tyre forces from slip angles
     const vyF = c.vy + a * c.wz, vyR = c.vy - b * c.wz;
     const latF = vyF * cd - c.vx * sd, lonF = c.vx * cd + vyF * sd;
     const aF = Math.atan2(latF, Math.max(3, Math.abs(lonF))), aR = Math.atan2(vyR, Math.max(3, Math.abs(c.vx)));
     const circleR = Math.sqrt(1 - Math.min(0.72, useR * useR)) * (inp.handbrake ? 0.5 : 1);
-    // the front is a little softer than the rear, so the car understeers gently and stays stable at speed
-    const fyF = tyre(aF, fzF, mu, (15 * w * b) / L, Math.sqrt(1 - Math.min(0.6, useF * useF)));
-    const fyR = tyre(aR, fzR, mu * (1.04 + 0.05 * s.poise), (20 * w * a) / L, circleR);
+    // the front is close to the rear, so the car turns in crisply and stays near neutral and stays stable at speed
+    const bal = s.balance ?? 0;
+    const fyF = tyre(aF, fzF, mu * (1 + bal), (19 * w * b) / L, Math.sqrt(1 - Math.min(0.45, useF * useF)));
+    const fyR = tyre(aR, fzR, mu * (1.02 + 0.03 * s.poise - bal), (20 * w * a) / L, circleR);
     slipF = Math.max(slipF, Math.min(1, Math.abs(aF) / 0.16)); slipR = Math.max(slipR, Math.min(1, Math.abs(aR) / 0.14));
 
     // resistances and gravity on slopes
@@ -121,9 +130,9 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     let MZ = a * (fyF * cd + fxF * sd) - b * fyR;
     // stability control: damp yaw the tyres cannot hold and pull the nose back towards the direction of travel
     if (!inp.handbrake && v > 10) {
-      const wzMax = (mu * (G + down / s.mass) * 1.08) / v, beta = Math.atan2(c.vy, Math.abs(c.vx));
-      if (Math.abs(c.wz) > wzMax) MZ -= Math.sign(c.wz) * (Math.abs(c.wz) - wzMax) * s.inertia * 7;
-      if (Math.abs(beta) > 0.06) MZ += (beta - Math.sign(beta) * 0.06) * s.inertia * (7 + 5 * s.poise) * fwd;
+      const wzMax = (mu * (G + down / s.mass) * 1.25) / v, beta = Math.atan2(c.vy, Math.abs(c.vx)), fade = Math.max(0, Math.min(1, (v - 10) / 10));
+      if (Math.abs(c.wz) > wzMax) MZ -= Math.sign(c.wz) * (Math.abs(c.wz) - wzMax) * s.inertia * 4;
+      if (Math.abs(beta) > 0.1) MZ += (beta - Math.sign(beta) * 0.1) * s.inertia * (4 + 3 * s.poise) * fwd * fade;
     }
     ax = FX / s.mass; ay = FY / s.mass;
     c.vx += (ax + c.vy * c.wz) * H; c.vy += (ay - c.vx * c.wz) * H;

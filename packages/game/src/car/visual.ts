@@ -6,7 +6,6 @@ import { carKit, cockpitScene, COCKPIT_HEAD, defaultAnchors, partName, type CarA
 export const PAINTS = ['#c8102e', '#f2b01e', '#1565d8', '#0f8f5a', '#e8e8ec', '#141518', '#f05a14', '#7a2bd0', '#12b5c9', '#d81b77', '#8a8f98', '#b9d21a', '#101c3a', '#5a1010'];
 export const FINISHES = ['Metálico', 'Sólido', 'Fosco', 'Perolado'];
 export const WHEELS = ['5 raios', 'Multirraio', 'Turbina'];
-export const CAR_NAMES = ['Aurora Concept', 'Sirocco MR', 'Vento GT'];
 
 const std = (color: number, roughness: number, metalness: number) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness });
 let mats: ReturnType<typeof makeCommon> | null = null;
@@ -45,14 +44,18 @@ export class CarVisual {
   private glb = false; private glbWheels: THREE.Group[] = []; private wheelR = 0.335;
   /** camera anchors (car space) and the glass meshes, which the cockpit view hides */
   anchors: CarAnchors = defaultAnchors(); private glass: THREE.Object3D[] = []; private bodyOff = new THREE.Vector3(); private carHead = new THREE.Vector3(); private shell: THREE.Object3D[] = []; private interior: THREE.Object3D | null = null; private wheelNode: THREE.Object3D | null = null;
+  private norm = false; private normPaint: THREE.MeshStandardMaterial | null = null; private normCoat = false; /** false for models whose paint is baked in (shown as original paint) */ paintable = true;
   private concept = false; private hero = false; private interiorMeshes: THREE.Object3D[] = []; private steerPivot: THREE.Object3D | null = null; private steerAxis = new THREE.Vector3();
   private p1: THREE.MeshPhysicalMaterial | null = null; private p2: THREE.MeshPhysicalMaterial | null = null; private tail: THREE.MeshPhysicalMaterial | null = null; private head: THREE.MeshPhysicalMaterial | null = null; private sig: THREE.MeshPhysicalMaterial | null = null;
   private cRim1: THREE.Mesh[] = []; private cRim2: THREE.Mesh[] = []; private cBrake: THREE.Mesh[] = []; private pearlOn = false; private coatOn = true; private shared: ConceptShared | null = null;
   private spin = 0; private pitch = 0; private roll = 0; private heave = 0; private baseY = 0;
 
   /** kind: 0 Car Concept, 1 1990s coupe, 2 1980s car (procedural bodies if a model failed to load). `hero`: the player's car or the garage car, which keeps its brake calipers and, in the cockpit view, its interior. */
+  readonly kind: number;
   constructor(kind = 0, hero = false) {
+    this.kind = kind;
     const kit = carKit(kind);
+    if (kit?.norm) { this.glb = true; this.norm = true; this.hero = hero; this.paintable = kit.norm.paintable; this.buildNorm(kit); return; }
     if (kit?.concept) { this.glb = true; this.concept = true; this.hero = hero; this.buildConcept(kit); return; }
     if (kit) { this.glb = true; this.buildGlb(kit); return; }
     const p = (this.parts = buildBody(SHAPES[kind % SHAPES.length])), c = common(); this.wheelR = p.shape.wheelR;
@@ -115,6 +118,34 @@ export class CarVisual {
     // wheels hang off `group`, the body (inner) rolls separately
   }
 
+  /** Normalised Sketchfab car: own clone of the 'paint' material (tinted per instance), 'glass' for the cockpit view, and wheels split into steer pivot > spin node. */
+  private buildNorm(kit: CarKit) {
+    this.wheelR = kit.wheelR; this.anchors = { head: kit.anchors.head.clone(), hood: kit.anchors.hood.clone(), bumper: kit.anchors.bumper.clone() }; this.carHead = kit.anchors.head.clone(); this.parts = { shape: { wheelR: kit.wheelR } } as BodyParts;
+    const scene = kit.scene.clone(true), inner = new THREE.Group(); this.group.add(inner);
+    scene.updateMatrixWorld(true);
+    const wheelNodes = ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR'].map((n) => { let f!: THREE.Object3D; scene.traverse((c) => { if (c.name === n) f = c; }); return f; });
+    const src = kit.paint; if (src && kit.norm!.paintable) { this.normPaint = src.clone(); this.normCoat = !!(src as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial; }
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh; if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.Material, inWheel = wheelNodes.some((w) => w.getObjectById(o.id));
+      if (src && m === src && this.normPaint) mesh.material = this.normPaint;
+      if (!Array.isArray(m) && m.transparent) { mesh.renderOrder = 2; this.glass.push(mesh); mesh.castShadow = false; mesh.receiveShadow = false; return; }
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      if (!inWheel) this.shell.push(mesh);
+    });
+    if (!kit.norm!.staticWheels) for (const w of wheelNodes) {
+      const pivot = new THREE.Group(), turn = new THREE.Group(); pivot.position.copy(w.position);
+      for (const c of w.children.slice()) turn.add(c);
+      pivot.add(turn); this.group.add(pivot); this.glbWheels.push(pivot); w.removeFromParent();
+    }
+    this.body.add(scene); inner.add(this.body); this.group.rotation.order = 'YXZ';
+  }
+  private setNormLook(o: { paint: number; finish?: number }, f: number) {
+    const m = this.normPaint; if (!m) return;
+    m.color.set(PAINTS[o.paint % PAINTS.length]); m.metalness = [0.75, 0.05, 0.3, 0.6][f]; m.roughness = [0.36, 0.3, 0.62, 0.3][f];
+    if (this.normCoat) { const p = m as THREE.MeshPhysicalMaterial; p.clearcoat = [1, 1, 0, 1][f]; p.clearcoatRoughness = 0.035; p.iridescence = f === 3 ? 0.8 : 0; p.iridescenceIOR = 1.7; }
+  }
+
   /** Car Concept (Khronos glTF sample, CC BY 4.0): recolour the two paint materials, drive the lamp materials, rebuild the wheels so they spin and steer, and hide whatever the render budget cannot afford. */
   private buildConcept(kit: CarKit) {
     const k = kit.concept!; this.wheelR = kit.wheelR; this.anchors = { head: kit.anchors.head.clone(), hood: kit.anchors.hood.clone(), bumper: kit.anchors.bumper.clone() }; this.carHead = kit.anchors.head.clone(); this.parts = { shape: { wheelR: kit.wheelR } } as BodyParts;
@@ -167,10 +198,11 @@ export class CarVisual {
     const pearl = f === 3, coat = f !== 2; if (pearl !== this.pearlOn || coat !== this.coatOn) { this.pearlOn = pearl; this.coatOn = coat; p1.needsUpdate = true; p2.needsUpdate = true; }
     for (const m of this.cRim1) m.material = sh.rim1[w]; for (const m of this.cRim2) m.material = sh.rim2[w]; for (const m of this.cBrake) m.material = sh.brake[w];
   }
-  setLook(o: { paint: number; finish?: number; wheels?: number; aero?: number; lower?: number }) {
+  setLook(o: { kind?: number; paint: number; finish?: number; wheels?: number; aero?: number; lower?: number }) {
     this.paint.value.set(PAINTS[o.paint % PAINTS.length]).convertSRGBToLinear();
     const f = o.finish ?? 0, w = (o.wheels ?? 0) % 3, c = common();
     this.metal.value = [0.75, 0.05, 0.3, 0.6][f]; this.rough.value = [0.36, 0.3, 0.62, 0.3][f]; this.coat.value = [1, 1, 0, 1][f]; this.flake.value = [1, 0, 0.3, 0.6][f]; this.pearl.value = f === 3 ? 1 : 0;
+    if (this.norm) { this.setNormLook(o, f); this.baseY = -0.012 * (o.lower ?? 0); return; }
     if (this.concept) { this.setConceptLook(o, f, w); this.baseY = -0.012 * (o.lower ?? 0); return; }
     if (this.glb) { this.baseY = -0.012 * (o.lower ?? 0); return; }
     for (const r of this.rims) { r.geometry = this.parts.wheel.rims[w]; r.material = c.rim[w]; }
@@ -179,7 +211,7 @@ export class CarVisual {
     this.baseY = -0.012 * (o.lower ?? 0);
   }
   /** Pose from the simulation. Angles in radians; `gradF`/`gradR` are the road gradient along the car and to its right. */
-  place(x: number, y: number, z: number, yaw: number, o: { speed: number; steer: number; ax: number; ay: number; gradF: number; gradR: number; brake: number; dt: number; lamps?: number }) {
+  place(x: number, y: number, z: number, yaw: number, o: { speed: number; steer: number; /** steer / steerLimit, -1..1 */ steerN?: number; ax: number; ay: number; gradF: number; gradR: number; brake: number; dt: number; lamps?: number }) {
     const g = this.group, k = Math.min(1, o.dt * 9);
     this.pitch += (-o.ax * 0.0042 - this.pitch) * k; this.roll += (o.ay * 0.0045 - this.roll) * k;
     this.heave += ((Math.abs(o.ax) + Math.abs(o.ay)) * -0.0012 - this.heave) * k;
@@ -188,9 +220,11 @@ export class CarVisual {
     this.brake.value += (o.brake - this.brake.value) * Math.min(1, o.dt * 20);
     this.spin += (o.speed / this.wheelR) * o.dt;
     const ws = this.glb ? this.glbWheels : this.wheels;
-    for (let i = 0; i < 4; i++) { const w = ws[i]; w.children[0].rotation.x = this.spin; w.rotation.y = (this.glb ? i < 2 : i >= 2) ? -o.steer : 0; }
-    if (this.wheelNode) this.wheelNode.rotation.z = o.steer * 1.5;
-    if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, o.steer * 4);
+    // front wheels turn more than the physical angle, which is only a few degrees at speed: ~14 deg at speed, ~29 deg parked, at full lock
+    const sn = Math.max(-1, Math.min(1, o.steerN ?? o.steer / 0.3)), mag = Math.max(Math.abs(o.steer), Math.abs(sn) * (0.5 + (0.24 - 0.5) * Math.min(1, Math.abs(o.speed) / 50))), ang = (sn !== 0 ? Math.sign(sn) : Math.sign(o.steer)) * mag;
+    for (let i = 0; i < ws.length; i++) { const w = ws[i]; w.children[0].rotation.x = this.spin; w.rotation.y = (this.glb ? i < 2 : i >= 2) ? -ang : 0; }
+    if (this.wheelNode) this.wheelNode.rotation.z = sn * 1.6;
+    if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, sn * 1.6);
     if (this.concept) { const l = o.lamps ?? 1; if (this.tail) this.tail.emissiveIntensity = 0.3 + l * 0.9 + this.brake.value * 7; if (this.head) this.head.emissiveIntensity = 0.4 + l * 6; if (this.sig) this.sig.emissiveIntensity = 0.1 + l * 0.6; return; }
     this.lamps.value = o.lamps ?? 1;
   }

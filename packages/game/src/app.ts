@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
-import { BASE, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
-  WEATHER, allowedWeather, pickWeather, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
+import { CARS, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
+  WEATHER, allowedWeather, pickWeather, carById, carStats, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
-import { preloadCars } from './car/glb';
-import { CAR_NAMES, CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
+import { carKit, isHeavy, kindOf, preloadCars } from './car/glb';
+import { CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
 import { Controls } from './input';
@@ -21,8 +21,13 @@ const PART_INFO: Record<PartId, [string, string]> = {
   weight: ['Alívio de peso', 'Menos massa em tudo'], aero: ['Aerodinâmica', 'Pressão para curvas rápidas'], nitro: ['Nitro', 'Mais potência e tanque maior'],
 };
 const KIND: Record<string, string> = { grid: 'Corrida', duel: 'Duelo', trial: 'Contra o relógio', rival: 'Rival' };
-type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options' | 'loading';
+type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options' | 'loading' | 'cars';
 const WX_ICON: Record<WeatherKind, string> = { clear: '☀️', overcast: '☁️', rain: '🌧️', storm: '⛈️', fog: '🌫️', snow: '❄️' };
+const CAR_CREDIT: Record<CarId, string> = {
+  aurora: 'Modelo "Car Concept" de Eric Chadwick (Khronos), CC BY 4.0.',
+  corvette: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', cuda: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', mustang: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.',
+  golf: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', m635: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', alfa155: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.',
+};
 const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO' };
 
 export class App {
@@ -43,7 +48,8 @@ export class App {
     this.world = makeRio(this.eng, this.track); await this.world.build(); this.worlds.set('rio', { world: this.world, track: this.track }); this.showWorld('rio');
     this.globe = new Globe(this.eng);
     await preloadCars();
-    this.show = new CarVisual(0, true); this.eng.scene.add(this.show.group); this.refreshCar();
+    if (isCarId(this.q.get('car'))) this.career.car = this.q.get('car') as CarId; // capture helper: ?car=<id> (not saved by itself)
+    this.show = new CarVisual(kindOf(this.career.car), true); this.eng.scene.add(this.show.group); this.refreshCar();
     // capture helper: window.__carTris() counts the triangles of the visible car meshes (one pass, no shadows)
     (window as any).__carTris = () => { const out: Record<string, number> = {}; const count = (g: THREE.Object3D) => { let n = 0; g.traverseVisible((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const gm = m.geometry; n += (gm.index ? gm.index.count : gm.attributes.position.count) / 3; } }); return n; };
       if (this.screen === 'garage') out.garage = count(this.show.group); this.session?.visuals.forEach((v, i) => (out['car' + i] = count(v.group))); return out; };
@@ -59,14 +65,20 @@ export class App {
     if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
     const go = this.q.get('go');
     if (go && this.q.get('rep')) this.career.rep = +this.q.get('rep')!; // capture helper: pretend to have this reputation (not saved by itself)
-    if (go === 'race') await this.startEvent(EVENTS.find((e) => e.id === this.q.get('ev')) ?? EVENTS[0]); else if (go === 'garage') this.garage(); else if (go === 'map') this.mapScreen(CITIES.find((c) => c.id === this.q.get('city')) ?? undefined); else this.title();
+    if (go === 'race') await this.startEvent(EVENTS.find((e) => e.id === this.q.get('ev')) ?? EVENTS[0]); else if (go === 'garage') this.garage(); else if (go === 'cars') this.carsScreen('title'); else if (go === 'map') this.mapScreen(CITIES.find((c) => c.id === this.q.get('city')) ?? undefined); else this.title();
     const skip = +(this.q.get('t') ?? 0); if (this.session) for (let i = 0; i < skip * 60; i++) this.session.update(1 / 60, null);
     requestAnimationFrame(() => this.frame());
   }
 
   // ---------- shared helpers ----------
   private clear() { this.ui.replaceChildren(); this.hud = {}; this.labels.clear(); }
-  private look(): Look { const c = this.career; return { paint: this.q.get('paint') ? +this.q.get('paint')! : c.paint, finish: this.q.get('finish') ? +this.q.get('finish')! : c.finish, wheels: this.q.get('wheels') ? +this.q.get('wheels')! : c.wheels, aero: c.parts.aero, lower: c.parts.suspension }; }
+  private look(): Look { const c = this.career, u = setupOf(c); return { kind: kindOf(c.car), paint: this.q.get('paint') ? +this.q.get('paint')! : u.paint, finish: this.q.get('finish') ? +this.q.get('finish')! : u.finish, wheels: this.q.get('wheels') ? +this.q.get('wheels')! : u.wheels, aero: u.parts.aero, lower: u.parts.suspension }; }
+  /** Make the showroom car the selected one, in its own look. */
+  private syncShow() { if (this.show.kind !== kindOf(this.career.car)) this.setShow(kindOf(this.career.car)); else { this.refreshCar(); this.placeShow(); } }
+  /** Swap the showroom car for model `kind` (and re-pose it). */
+  private setShow(kind: number, look: Look = this.look()) {
+    this.show.dispose(); this.show = new CarVisual(kind, true); this.eng.scene.add(this.show.group); this.show.setLook({ ...look, kind }); this.placeShow();
+  }
   private refreshCar() { this.show.setLook(this.look()); }
   private music(name: string) {
     if (!this.audio.ctx) return;
@@ -126,9 +138,9 @@ export class App {
 
   // ---------- title ----------
   title() {
-    this.endSession(); this.showRio(); this.screen = 'title'; this.clear(); this.globe.show(false); this.placeShow(); this.orbitAuto = true; this.music('title');
+    this.endSession(); this.showRio(); this.screen = 'title'; this.clear(); this.globe.show(false); this.syncShow(); this.orbitAuto = true; this.music('title');
     this.ui.append(h('div.title', null, h('h1', { html: 'REDLINE<br><span>HORIZON</span>' }), h('p', null, 'World Tour — comece no Rio, monte o seu carro e conquiste o mundo.'),
-      h('div.menu', null, h('button.pri', { onclick: () => this.mapScreen() }, 'Carreira'), h('button', { onclick: () => this.garage() }, 'Garagem'), h('button', { onclick: () => this.options() }, 'Opções'))),
+      h('div.menu', null, h('button.pri', { onclick: () => this.mapScreen() }, 'Carreira'), h('button', { onclick: () => this.garage() }, 'Garagem'), h('button', { onclick: () => this.carsScreen('title') }, 'Carros'), h('button', { onclick: () => this.options() }, 'Opções'))),
       h('div.hint', null, 'Setas ou WASD dirigem · Shift nitro · Espaço freio de mão · C câmera · B olhar para trás · P modo foto · controle PS/Xbox suportado'));
   }
 
@@ -159,16 +171,17 @@ export class App {
 
   // ---------- garage ----------
   garage() {
-    this.endSession(); this.showRio(); this.screen = 'garage'; this.clear(); this.globe.show(false); this.placeShow(); this.music('showroom');
-    const c = this.career, left = h('div.left'), side = h('div.side');
-    this.ui.append(this.topBar('Garagem', () => this.title(), [h('button', { onclick: () => this.mapScreen() }, 'World Tour')]), left, side, h('div.hint', null, 'Arraste para girar o carro · P modo foto'));
+    this.endSession(); this.showRio(); this.screen = 'garage'; this.clear(); this.globe.show(false); this.music('showroom');
+    this.syncShow();
+    const c = this.career, u = setupOf(c), def = carById(c.car), left = h('div.left'), side = h('div.side');
+    this.ui.append(this.topBar('Garagem', () => this.title(), [h('button', { onclick: () => this.carsScreen('garage') }, 'Trocar carro'), h('button', { onclick: () => this.mapScreen() }, 'World Tour')]), left, side, h('div.hint', null, 'Arraste para girar o carro · P modo foto'));
     const draw = () => {
-      const spec = buildSpec(c.parts, c.tuning), now = ratings(spec);
-      const parts2 = { ...c.parts }; if (this.preview && parts2[this.preview] < MAX_LEVEL) parts2[this.preview]++;
-      const spec2 = buildSpec(parts2, c.tuning), nxt = ratings(spec2);
+      const spec = buildSpec(u.parts, u.tuning, def.spec), now = ratings(spec);
+      const parts2 = { ...u.parts }; if (this.preview && parts2[this.preview] < MAX_LEVEL) parts2[this.preview]++;
+      const spec2 = buildSpec(parts2, u.tuning, def.spec), nxt = ratings(spec2);
       const bar = (name: string, a: number, b: number) => [h('div.stat', null, h('span', null, name), h('span', null, Math.round(b * 100) + '')), h('div.bar', null, h('i.gain', { style: { width: b * 100 + '%' } }), h('i', { style: { width: a * 100 + '%' } }))];
       const dc = h<'canvas'>('canvas.dyno');
-      left.replaceChildren(h('div.panel', null, h('h2', null, CAR_NAMES[0]), h('div.stat', null, h('span', null, 'Potência'), h('span', { html: `<b style="color:var(--acc2);font-size:20px">${nxt.hp} cv</b>${nxt.hp !== now.hp ? ' (+' + (nxt.hp - now.hp) + ')' : ''}` })),
+      left.replaceChildren(h('div.panel', null, h('h2', null, def.name), h('div.stat', null, h('span', null, 'Potência'), h('span', { html: `<b style="color:var(--acc2);font-size:20px">${nxt.hp} cv</b>${nxt.hp !== now.hp ? ' (+' + (nxt.hp - now.hp) + ')' : ''}` })),
         h('div.stat', null, h('span', null, 'Peso'), h('span', null, Math.round(spec2.mass) + ' kg')), h('div', { style: { height: '8px' } }),
         ...bar('Aceleração', now.power, nxt.power), ...bar('Velocidade final', now.top, nxt.top), ...bar('Aderência', now.grip, nxt.grip), ...bar('Frenagem', now.braking, nxt.braking), ...bar('Nitro', now.nitro, nxt.nitro)),
         h('div.panel', null, h('h3', null, 'Dinamômetro'), dc));
@@ -176,21 +189,52 @@ export class App {
       const tabs = h('div.tabs', null, ...['Peças', 'Ajuste', 'Visual'].map((t, i) => h('button' + (this.tab === i ? '.on' : ''), { onclick: () => { this.tab = i; draw(); } }, t)));
       let body: HTMLElement[];
       if (this.tab === 0) body = PART_IDS.map((p) => {
-        const lv = c.parts[p], max = lv >= MAX_LEVEL;
+        const lv = u.parts[p], max = lv >= MAX_LEVEL;
         return h('div.part', { onmouseenter: () => { if (this.preview !== p) { this.preview = p; draw(); } } }, h('div', null, PART_INFO[p][0], h('small', null, PART_INFO[p][1])),
           h('div.pips', null, ...[0, 1, 2].map((i) => h('i' + (i < lv ? '.on' : '')))), h('button' + (canBuy(c, p) ? '.pri' : ''), { disabled: !canBuy(c, p), onclick: () => { if (buyPart(c, p)) { saveCareer(c); this.audio.ui('ok'); this.refreshCar(); this.garage(); } } }, max ? 'Máx' : money(priceOf(c, p))));
       });
       else if (this.tab === 1) {
         const sl = (name: string, hint: string, min: number, max: number, get: () => number, set: (v: number) => void) => h('label.row', null, h('span', null, name, h('small', { style: { display: 'block', color: 'var(--dim)' } }, hint)),
           h('input', { type: 'range', min, max, step: 0.01, value: get(), oninput: (e: Event) => { set(+(e.target as HTMLInputElement).value); saveCareer(c); }, onchange: () => draw() }));
-        body = [sl('Relação final', 'esquerda: mais final · direita: mais arrancada', 0.85, 1.15, () => c.tuning.gearing, (v) => (c.tuning.gearing = v)),
-          sl('Asa', 'mais asa: mais curva, menos reta (exige kit aero)', 0, 1, () => c.tuning.wing, (v) => (c.tuning.wing = v)), sl('Freio dianteiro', 'distribuição da frenagem', 0.5, 0.75, () => c.tuning.bias, (v) => (c.tuning.bias = v))];
-      } else body = [h('h3', null, 'Cor'), h('div.sw', null, ...PAINTS.map((col, i) => h('i' + (c.paint === i ? '.on' : ''), { style: { background: col }, onclick: () => { c.paint = i; saveCareer(c); this.refreshCar(); draw(); } }))),
-        h('h3', { style: { marginTop: '14px' } }, 'Acabamento'), h('div.tabs', null, ...FINISHES.map((f, i) => h('button' + (c.finish === i ? '.on' : ''), { onclick: () => { c.finish = i; saveCareer(c); this.refreshCar(); draw(); } }, f))),
-        h('h3', null, 'Rodas'), h('div.tabs', null, ...WHEELS.map((f, i) => h('button' + (c.wheels === i ? '.on' : ''), { onclick: () => { c.wheels = i; saveCareer(c); this.refreshCar(); draw(); } }, f)))];
+        body = [sl('Relação final', 'esquerda: mais final · direita: mais arrancada', 0.85, 1.15, () => u.tuning.gearing, (v) => (u.tuning.gearing = v)),
+          sl('Asa', 'mais asa: mais curva, menos reta (exige kit aero)', 0, 1, () => u.tuning.wing, (v) => (u.tuning.wing = v)), sl('Freio dianteiro', 'distribuição da frenagem', 0.5, 0.75, () => u.tuning.bias, (v) => (u.tuning.bias = v))];
+      } else {
+        const kit = carKit(this.show.kind), orig = !!kit?.norm && !kit.norm.paintable, norm = !!kit?.norm;
+        body = orig ? [h('h3', null, 'Pintura original'), h('p', { style: { color: 'var(--dim)' } }, 'Este modelo tem a pintura e as rodas gravadas na textura: a cor não pode ser trocada.')]
+          : [h('h3', null, 'Cor'), h('div.sw', null, ...PAINTS.map((col, i) => h('i' + (u.paint === i ? '.on' : ''), { style: { background: col }, onclick: () => { u.paint = i; saveCareer(c); this.refreshCar(); draw(); } }))),
+            h('h3', { style: { marginTop: '14px' } }, 'Acabamento'), h('div.tabs', null, ...FINISHES.map((f, i) => h('button' + (u.finish === i ? '.on' : ''), { onclick: () => { u.finish = i; saveCareer(c); this.refreshCar(); draw(); } }, f))),
+            ...(norm ? [] : [h('h3', null, 'Rodas'), h('div.tabs', null, ...WHEELS.map((f, i) => h('button' + (u.wheels === i ? '.on' : ''), { onclick: () => { u.wheels = i; saveCareer(c); this.refreshCar(); draw(); } }, f)))])];
+      }
       side.replaceChildren(h('div.panel', { onmouseleave: () => { if (this.preview) { this.preview = null; draw(); } } }, tabs, ...body));
     };
     draw();
+  }
+
+  // ---------- car select ----------
+  private carStep: ((d: number) => void) | null = null;
+  /** The setup (paint, finish, parts) a car shows in the showroom. */
+  private lookFor(id: CarId): Look { const u = this.career.cars[id]; return { kind: kindOf(id), paint: u.paint, finish: u.finish, wheels: u.wheels, aero: u.parts.aero, lower: u.parts.suspension }; }
+  carsScreen(from: 'title' | 'garage' = 'title') {
+    this.endSession(); this.showRio(); this.screen = 'cars'; this.clear(); this.globe.show(false); this.music('showroom'); this.orbitAuto = true; this.preview = null;
+    const back = () => { this.carStep = null; if (from === 'garage') this.garage(); else this.title(); };
+    let sel = Math.max(0, CARS.findIndex((x) => x.id === this.career.car));
+    const list = h('div.left.carlist'), side = h('div.side');
+    this.ui.append(this.topBar('Carros', back), list, side, h('div.hint', null, 'Setas ← → trocam de carro · arraste para girar'));
+    const draw = () => {
+      const def = CARS[sel], st = carStats(def.spec), credit = CAR_CREDIT[def.id];
+      const bar = (name: string, v: number) => [h('div.stat', null, h('span', null, name), h('span', null, v + '')), h('div.bar', null, h('i', { style: { width: v + '%' } }))];
+      list.replaceChildren(h('div.panel', null, ...CARS.map((x, i) => h('button.carcard' + (i === sel ? '.on' : ''), { onclick: () => pick(i) },
+        h('b', null, x.name), h('small', null, `${x.year} · ${x.drivetrain}` + (x.id === this.career.car ? ' · em uso' : ''))))));
+      side.replaceChildren(h('div.panel', null, h('h2', null, def.name), h('div', { style: { color: 'var(--dim)' } }, `${def.year} · tração ${def.drivetrain === 'RWD' ? 'traseira' : def.drivetrain === 'FWD' ? 'dianteira' : 'integral'}`),
+        h('p.blurb', null, def.blurb), ...bar('Velocidade', st.speed), ...bar('Aceleração', st.accel), ...bar('Dirigibilidade', st.handling), ...bar('Frenagem', st.braking),
+        h('div.nums', null, h('div', null, h('b', null, st.hp + ' cv'), h('small', null, 'potência')), h('div', null, h('b', null, Math.round(def.spec.mass) + ' kg'), h('small', null, 'peso')),
+          h('div', null, h('b', null, st.zeroTo100.toFixed(1) + ' s'), h('small', null, '0–100 km/h')), h('div', null, h('b', null, st.topKmh + ' km/h'), h('small', null, 'final'))),
+        carKit(kindOf(def.id))?.norm?.paintable === false ? h('small.credit', null, 'Pintura original (não pode ser trocada)') : null, h('small.credit', null, credit),
+        h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } }, h('button.pri', { onclick: () => { this.career.car = def.id; saveCareer(this.career); this.audio.ui('ok'); back(); } }, def.id === this.career.car ? 'Manter' : 'Escolher'), h('button', { onclick: back }, 'Voltar'))));
+    };
+    const pick = (i: number) => { sel = (i + CARS.length) % CARS.length; this.setShow(kindOf(CARS[sel].id), this.lookFor(CARS[sel].id)); draw(); this.audio.ui('move'); };
+    this.carStep = (d) => pick(sel + d);
+    this.setShow(kindOf(CARS[sel].id), this.lookFor(CARS[sel].id)); draw();
   }
   private dyno(cv: HTMLCanvasElement, a: ReturnType<typeof buildSpec>, b: ReturnType<typeof buildSpec>) {
     const w = (cv.width = cv.clientWidth * 2), hh = (cv.height = cv.clientHeight * 2), g = cv.getContext('2d')!; if (!w) return;
@@ -245,11 +289,11 @@ export class App {
     }
     this.screen = 'race'; this.endTimer = 0; this.lastBeep = 9; this.bestSeen = 0; this.finalSaid = false;
     const c = this.career, auto = this.q.get('auto');
-    const lvl = (n: number) => buildSpec({ engine: n, turbo: n, gearbox: n, tyres: n, suspension: n, brakes: n, weight: n, aero: n, nitro: n });
-    const entrants: Entrant[] = ev.rivals.map((r) => ({ spec: r.parts ? lvl(r.parts) : BASE, driver: r.driver, name: r.driver.name, paint: r.paint }));
-    // the player drives the Car Concept (kind 0); at most three rivals share it (heavy mesh), the rest alternate between the two older coupes
-    const looks: Look[] = ev.rivals.map((r, i) => ({ kind: i % 3 === 0 && i < 9 ? 0 : 1 + (i % 2), paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }));
-    entrants.push({ spec: buildSpec(c.parts, c.tuning), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: c.paint }); looks.push(this.look());
+    const rc = rivalCars(ev), mine = kindOf(c.car); let heavyN = isHeavy(mine) ? 1 : 0;
+    const entrants: Entrant[] = ev.rivals.map((r, i) => ({ spec: rivalSpec(r.parts ?? 0, rc[i]), driver: r.driver, name: r.driver.name, paint: r.paint }));
+    // heavy meshes (the Aurora, the 60k+ triangle cars) are capped at 4 on screen; extra rivals keep their own physics but borrow a lighter body
+    const looks: Look[] = ev.rivals.map((r, i) => { let kind = kindOf(rc[i]); if (isHeavy(kind)) { if (heavyN >= 4) kind = kindOf('cuda'); else heavyN++; } return { kind, paint: r.paint, finish: i % 4, wheels: i % 3, aero: r.parts, lower: r.parts }; });
+    entrants.push({ spec: playerSpec(c), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: setupOf(c).paint }); looks.push(this.look());
     const wx = this.chosenWeather(ev); this.world.setWeather(wx); this.world.onThunder = (d, p) => this.audio.thunder(d, p); this.weatherSound(wx);
     const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5, wx));
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
@@ -375,15 +419,16 @@ export class App {
   private frame() {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
     const eng = this.eng, cam = eng.camera;
-    this.controls.read(dt); this.padMenu();
+    this.controls.read(dt, this.screen === 'race' ? Math.abs(this.session?.me.car.vx ?? 0) : 0); this.padMenu();
     if (this.screen !== 'options' && this.controls.hit('KeyR')) this.cycleStation(1);
     if (this.screen === 'race' || (this.screen === 'results' && this.session)) {
       if (this.screen === 'race') this.raceFrame(dt); else { this.session!.cam = 'orbit'; this.session!.orbit += dt * 0.25; this.session!.update(dt, null); }
     } else if (this.screen === 'map') { this.globe.update(dt, this.labels); eng.blur.value = 0; }
     else {
       if (this.controls.hit('KeyP') && this.screen === 'garage') this.togglePhoto();
+      if (this.screen === 'cars') { if (this.controls.hit('ArrowRight') || this.controls.hit('ArrowDown')) this.carStep?.(1); if (this.controls.hit('ArrowLeft') || this.controls.hit('ArrowUp')) this.carStep?.(-1); }
       if (this.orbitAuto) this.orbit += dt * 0.12;
-      const g = this.show.group.position, d = this.screen === 'title' ? 7.4 : 6.6, off = this.screen === 'garage' && !this.photo ? 0.9 : this.screen === 'title' ? -1.2 : 0;
+      const g = this.show.group.position, d = this.screen === 'title' ? 7.4 : 6.6, off = (this.screen === 'garage' || this.screen === 'cars') && !this.photo ? 0.9 : this.screen === 'title' ? -1.2 : 0;
       cam.position.set(g.x + Math.cos(this.orbit) * d, g.y + 1.35, g.z + Math.sin(this.orbit) * d); cam.lookAt(g.x, g.y + 0.6, g.z); cam.translateX(off);
       if (cam.fov !== 40 && !this.q.get('gcam')) { cam.fov = 40; cam.updateProjectionMatrix(); }
       const gc = this.q.get('gcam'); // capture helper: ?gcam=x,y,z,lookX,lookY,lookZ in the garage car's own frame (x left, z forward, y up from the ground)

@@ -120,7 +120,7 @@ describe('career', () => {
   it('buys parts and banks prizes', () => {
     const c = newCareer(); expect(buyPart(c, 'engine')).toBe(false);
     const got = settle(c, EVENTS[0], 1, 6000); expect(got.money).toBe(6000); expect(c.rep).toBe(30);
-    expect(buyPart(c, 'engine')).toBe(true); expect(c.parts.engine).toBe(1); expect(c.money).toBe(4500);
+    expect(buyPart(c, 'engine')).toBe(true); expect(c.cars.aurora.parts.engine).toBe(1); expect(c.money).toBe(4500);
     expect(settle(c, EVENTS[0], 1, 5900).money).toBeLessThan(3000);
     expect(medal(EVENTS[1], 79 * 60)).toBe(1); expect(medal(EVENTS[1], 200 * 60)).toBe(4);
   });

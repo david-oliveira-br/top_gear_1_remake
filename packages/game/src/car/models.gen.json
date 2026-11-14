@@ -1,0 +1,62 @@
+{
+  "corvette": {
+    "wheelbase": 2.49,
+    "track": 1.646,
+    "wheelR": 0.327,
+    "halfW": 0.972,
+    "halfL": 2.202,
+    "paintable": false,
+    "staticWheels": false,
+    "tris": 39972
+  },
+  "cuda": {
+    "wheelbase": 2.74,
+    "track": 1.504,
+    "wheelR": 0.339,
+    "halfW": 1.048,
+    "halfL": 2.367,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 23041
+  },
+  "mustang": {
+    "wheelbase": 2.74,
+    "track": 1.532,
+    "wheelR": 0.336,
+    "halfW": 0.896,
+    "halfL": 2.27,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 28449
+  },
+  "golf": {
+    "wheelbase": 2.4,
+    "track": 1.342,
+    "wheelR": 0.282,
+    "halfW": 0.828,
+    "halfL": 1.877,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 40752
+  },
+  "m635": {
+    "wheelbase": 2.63,
+    "track": 1.431,
+    "wheelR": 0.341,
+    "halfW": 0.988,
+    "halfL": 2.361,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 65491
+  },
+  "alfa155": {
+    "wheelbase": 2.54,
+    "track": 1.468,
+    "wheelR": 0.294,
+    "halfW": 1.01,
+    "halfL": 2.225,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 69969
+  }
+}

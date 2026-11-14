@@ -16,12 +16,14 @@ export class Controls {
   private padPrev: boolean[] = [];
   /** True once per gamepad button press. */
   padHit(i: number) { const p = this.pad, now = !!p?.buttons[i]?.pressed, was = this.padPrev[i]; this.padPrev[i] = now; return now && !was; }
-  read(dt: number): Input {
+  /** `speed` is the car's forward speed in m/s: the keyboard winds the wheel on more slowly the faster you go. */
+  read(dt: number, speed = 0): Input {
     const o = this.out, pads = navigator.getGamepads ? navigator.getGamepads() : []; this.pad = null;
     for (const p of pads) if (p && p.connected && p.mapping === 'standard') { this.pad = p; break; }
     const want = (this.k('ArrowRight', 'KeyD') ? 1 : 0) - (this.k('ArrowLeft', 'KeyA') ? 1 : 0);
-    // keyboard steering ramps in and snaps back faster than it winds on
-    const rate = want === 0 || Math.sign(want) !== Math.sign(this.steer) ? 5.5 : 2.6;
+    // keyboard steering winds on quickly (a little slower at speed), releases fast and counter-steers faster still
+    const wind = 5.0 + (3.0 - 5.0) * Math.max(0, Math.min(1, speed / 55));
+    const rate = want === 0 ? 8 : Math.sign(want) !== Math.sign(this.steer) && this.steer !== 0 ? 10 : wind;
     this.steer += Math.max(-rate * dt, Math.min(rate * dt, want - this.steer));
     o.steer = this.steer; o.throttle = this.k('ArrowUp', 'KeyW') ? 1 : 0; o.brake = this.k('ArrowDown', 'KeyS') ? 1 : 0;
     o.nitro = this.k('ShiftLeft', 'ShiftRight', 'KeyN'); o.handbrake = this.k('Space'); o.shift = 0;

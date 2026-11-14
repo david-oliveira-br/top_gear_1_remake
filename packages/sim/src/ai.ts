@@ -70,7 +70,8 @@ export function drive(c: Car, p: AiProfile, t: Track, others: Car[], pace: numbe
   const lim = t.hw[ti] - 1.2, lat = Math.max(-lim, Math.min(lim, p.off[ti] + p.side));
   const gx = t.px[ti] - t.tz[ti] * lat - c.x, gz = t.pz[ti] + t.tx[ti] * lat - c.z;
   const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), lx = gx * ct + gz * st, ly = -gx * st + gz * ct;
-  const delta = Math.atan2(2 * c.spec.wheelbase * ly, lx * lx + ly * ly);
+  // pure pursuit plus counter-steer into any slide, so the grippier front end does not set up a weave at speed
+  const delta = Math.atan2(2 * c.spec.wheelbase * ly, lx * lx + ly * ly) + 0.9 * Math.atan2(c.vy, Math.max(5, Math.abs(c.vx)));
   out.steer = Math.max(-1, Math.min(1, delta / steerLimit(c.spec, v, c.grip)));
 
   // speed: look a little ahead so braking starts in time

@@ -7,11 +7,17 @@
     "dev": "npm run dev -w packages/game",
     "build": "npm run build -w packages/game",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/sim && tsc --noEmit -p packages/game"
+    "typecheck": "tsc --noEmit -p packages/sim && tsc --noEmit -p packages/game",
+    "build:cars": "node tools/build-cars.mjs"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.3.0",
+    "playwright": "^1.50.0",
+    "sharp": "^0.35.5",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "playwright": "^1.50.0"
+    "vitest": "^2.1.0"
   }
 }

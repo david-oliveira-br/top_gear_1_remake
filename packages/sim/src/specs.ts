@@ -9,6 +9,12 @@ export interface CarSpec {
   nitroPower: number; nitroTank: number;
   /** how quickly the chassis settles (suspension quality), 0..1 */
   poise: number;
+  /** steering speed multiplier (default 1) */
+  steerRate?: number;
+  /** chassis balance, +-0.04: positive = more oversteer, negative = more understeer (default 0) */
+  balance?: number;
+  /** share of drive torque sent to the front axle, 0..1 (default 0 = rear drive) */
+  driveFront?: number;
 }
 
 export const PART_IDS = ['engine', 'turbo', 'gearbox', 'tyres', 'suspension', 'brakes', 'weight', 'aero', 'nitro'] as const;
@@ -44,19 +50,20 @@ export function buildSpec(parts: Parts, tune: Tuning = defaultTuning(), base: Ca
   const s: CarSpec = { ...base, gears: base.gears.slice() };
   s.torque *= lv([1, 1.1, 1.2, 1.32], parts.engine);
   s.redline += lv([0, 150, 300, 500], parts.engine);
-  s.boost = lv([0, 0.14, 0.25, 0.38], parts.turbo); s.lag = lv([0.45, 0.5, 0.45, 0.36], parts.turbo);
+  s.boost = base.boost + lv([0, 0.14, 0.25, 0.38], parts.turbo); s.lag = lv([0.45, 0.5, 0.45, 0.36], parts.turbo);
   s.shiftTime = lv([0.28, 0.2, 0.13, 0.07], parts.gearbox);
   s.eff = lv([0.88, 0.9, 0.92, 0.94], parts.gearbox);
   const close = lv([0, 0.025, 0.05, 0.075], parts.gearbox); // closer middle ratios keep the engine in its power band
   for (let i = 1; i < s.gears.length - 1; i++) s.gears[i] *= 1 + close;
-  s.mu = lv([1.08, 1.18, 1.29, 1.42], parts.tyres);
-  s.cgHeight = lv([0.52, 0.48, 0.44, 0.4], parts.suspension); s.poise = lv([0.35, 0.55, 0.75, 1], parts.suspension);
+  // everything below is relative to the base car, so every car in cars.ts improves by the same proportions
+  s.mu = base.mu * lv([1, 1.18 / 1.08, 1.29 / 1.08, 1.42 / 1.08], parts.tyres);
+  s.cgHeight = base.cgHeight * lv([1, 0.48 / 0.52, 0.44 / 0.52, 0.4 / 0.52], parts.suspension); s.poise = base.poise + lv([0, 0.2, 0.4, 0.65], parts.suspension);
   s.mu *= lv([1, 1.015, 1.03, 1.045], parts.suspension);
-  s.brake = lv([10500, 13500, 17000, 21000], parts.brakes);
+  s.brake = base.brake * lv([1, 13500 / 10500, 17000 / 10500, 21000 / 10500], parts.brakes);
   s.mass -= lv([0, 60, 130, 210], parts.weight); s.inertia *= s.mass / base.mass;
   const kit = lv([0, 0.35, 0.75, 1.2], parts.aero);
-  s.cla = 0.35 + kit * (0.5 + tune.wing); s.cda = 0.74 - kit * 0.03 + kit * tune.wing * 0.09 + (tune.wing - 0.5) * 0.04;
-  s.nitroPower = lv([90000, 125000, 165000, 210000], parts.nitro); s.nitroTank = lv([2.5, 3.5, 4.5, 6], parts.nitro);
+  s.cla = base.cla + kit * (0.5 + tune.wing); s.cda = base.cda - kit * 0.03 + kit * tune.wing * 0.09 + (tune.wing - 0.5) * 0.04;
+  s.nitroPower = base.nitroPower * lv([1, 125 / 90, 165 / 90, 210 / 90], parts.nitro); s.nitroTank = base.nitroTank * lv([1, 3.5 / 2.5, 4.5 / 2.5, 6 / 2.5], parts.nitro);
   s.final *= tune.gearing; s.brakeBias = tune.bias;
   return s;
 }

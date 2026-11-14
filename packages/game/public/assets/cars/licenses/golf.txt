@@ -1,0 +1,11 @@
+Model Information:
+* title:	1976 Volkswagen Golf GTI
+* source:	https://sketchfab.com/3d-models/1976-volkswagen-golf-gti-c3569d9df6c74b86ad7751ffa407c160
+* author:	OUTPISTON (https://sketchfab.com/outpiston)
+
+Model License:
+* license type:	CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions must have the same license.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "1976 Volkswagen Golf GTI" (https://sketchfab.com/3d-models/1976-volkswagen-golf-gti-c3569d9df6c74b86ad7751ffa407c160) by OUTPISTON (https://sketchfab.com/outpiston) licensed under CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)

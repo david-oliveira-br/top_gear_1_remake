@@ -1,0 +1,11 @@
+Model Information:
+* title:	1992 Alfa Romeo 155 Q4
+* source:	https://sketchfab.com/3d-models/1992-alfa-romeo-155-q4-9be37de2d57d4c93bd472637a42b9db3
+* author:	OUTPISTON (https://sketchfab.com/outpiston)
+
+Model License:
+* license type:	CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions must have the same license.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "1992 Alfa Romeo 155 Q4" (https://sketchfab.com/3d-models/1992-alfa-romeo-155-q4-9be37de2d57d4c93bd472637a42b9db3) by OUTPISTON (https://sketchfab.com/outpiston) licensed under CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)

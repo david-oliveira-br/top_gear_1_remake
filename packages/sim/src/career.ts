@@ -1,5 +1,6 @@
 import type { Driver } from './ai';
-import { MAX_LEVEL, PART_PRICE, defaultTuning, noParts, type PartId, type Parts, type Tuning } from './specs';
+import { DEFAULT_CAR, carById, type CarId } from './cars';
+import { MAX_LEVEL, PART_PRICE, buildSpec, defaultTuning, noParts, type PartId, type Parts, type Tuning } from './specs';
 
 export interface City { id: string; name: string; country: string; lat: number; lon: number; landmark: string; /** reputation needed to travel there */ rep: number; ready: boolean; }
 
@@ -33,7 +34,7 @@ export const EVENTS: RaceEvent[] = [
     rivals: field(0, [1, 2, 3, 4, 5, 6, 7], D('Tainá', 0.9, 0.5, 0.8), D('Beto', 0.885, 0.8, 0.6), D('Íris', 0.87, 0.3, 0.9), D('Caio', 0.855, 0.6, 0.6), D('Malu', 0.84, 0.4, 0.7), D('Duda', 0.825, 0.7, 0.5), D('Nando', 0.8, 0.5, 0.5)),
     prize: [6000, 4200, 3000, 2000, 1400, 900, 600, 400], fame: [30, 20, 14, 9, 6, 4, 2, 1] },
   { id: 'rio-trial', city: 'rio', track: 'rio', kind: 'trial', name: 'Contra o Relógio', blurb: 'Pista livre. Só você, o carro e o cronômetro.', laps: 3, rep: 0,
-    rivals: [], prize: [5000, 3000, 1500, 400], fame: [25, 15, 8, 1], medals: [80, 85, 92] },
+    rivals: [], prize: [5000, 3000, 1500, 400], fame: [25, 15, 8, 1], medals: [81.5, 86, 92] },
   { id: 'rio-duel', city: 'rio', track: 'rio', kind: 'duel', name: 'Duelo no Mirante', blurb: 'Um contra um com a piloto mais rápida do bairro.', laps: 2, rep: 25,
     rivals: field(1, [8], D('Tainá', 0.93, 0.7, 0.9)), prize: [7000, 1500], fame: [35, 5] },
   { id: 'rio-gp', city: 'rio', track: 'rio', kind: 'grid', name: 'Grande Prêmio do Rio', blurb: 'Cinco voltas, grid completo e carros preparados.', laps: 5, rep: 60,
@@ -48,20 +49,46 @@ export const EVENTS: RaceEvent[] = [
     rivals: [], prize: [6500, 3800, 1900, 500], fame: [30, 18, 9, 1], medals: [162, 170, 181] },
 ];
 
+/** Everything the player owns and has set up for one car. */
+export interface CarSetup { parts: Parts; tuning: Tuning; paint: number; finish: number; wheels: number; }
+export const newSetup = (): CarSetup => ({ parts: noParts(), tuning: defaultTuning(), paint: 0, finish: 0, wheels: 0 });
+
 export interface Career {
-  v: 1; money: number; rep: number; parts: Parts; tuning: Tuning; paint: number; finish: number; wheels: number;
+  v: 1; money: number; rep: number;
+  /** the car being driven, and the parts / tuning / paint kept separately for every car */
+  car: CarId; cars: Record<CarId, CarSetup>;
   /** best finishing place per event (trial: medal rank 1..4) and best lap in ticks */
   results: Record<string, { place: number; best: number }>;
   ghost: Record<string, number[]>;
 }
 
-export const newCareer = (): Career => ({ v: 1, money: 2500, rep: 0, parts: noParts(), tuning: defaultTuning(), paint: 0, finish: 0, wheels: 0, results: {}, ghost: {} });
+export const newCareer = (): Career => ({
+  v: 1, money: 2500, rep: 0, car: DEFAULT_CAR,
+  cars: { aurora: newSetup(), corvette: newSetup(), cuda: newSetup(), mustang: newSetup(), golf: newSetup(), m635: newSetup(), alfa155: newSetup() },
+  results: {}, ghost: {},
+});
 
-export const priceOf = (c: Career, p: PartId) => (c.parts[p] >= MAX_LEVEL ? 0 : PART_PRICE[p][c.parts[p]]);
-export const canBuy = (c: Career, p: PartId) => c.parts[p] < MAX_LEVEL && c.money >= priceOf(c, p);
+/** Setup (parts, tuning, paint) of the car currently selected. */
+export const setupOf = (c: Career): CarSetup => c.cars[c.car] ?? (c.cars[c.car] = newSetup());
+/** Physics spec of the selected car with its parts and tuning applied. */
+export const playerSpec = (c: Career) => buildSpec(setupOf(c).parts, setupOf(c).tuning, carById(c.car).spec);
+
+export const priceOf = (c: Career, p: PartId) => { const l = setupOf(c).parts[p]; return l >= MAX_LEVEL ? 0 : PART_PRICE[p][l]; };
+export const canBuy = (c: Career, p: PartId) => setupOf(c).parts[p] < MAX_LEVEL && c.money >= priceOf(c, p);
 export function buyPart(c: Career, p: PartId): boolean {
   if (!canBuy(c, p)) return false;
-  c.money -= priceOf(c, p); c.parts[p]++; return true;
+  c.money -= priceOf(c, p); setupOf(c).parts[p]++; return true;
+}
+
+/** Cars for the rivals of an event, in the same order as `ev.rivals`: the faster the driver, the faster the car. */
+const PACE_ORDER: CarId[] = ['corvette', 'm635', 'aurora', 'alfa155', 'mustang', 'cuda', 'golf'];
+export function rivalCars(ev: RaceEvent): CarId[] {
+  return ev.rivals.map((r) => PACE_ORDER[Math.round((1 - Math.max(0, Math.min(1, (r.driver.skill - 0.8) / 0.17))) * (PACE_ORDER.length - 1))]);
+}
+/** Physics spec of a rival: the event's part level on the rival's own car, with default tuning. */
+export function rivalSpec(level: number, car: CarId) {
+  const p = noParts(); for (const k of Object.keys(p) as PartId[]) p[k] = level;
+  return buildSpec(p, defaultTuning(), carById(car).spec);
 }
 
 export const eventOpen = (c: Career, e: RaceEvent) => c.rep >= e.rep;

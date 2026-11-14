@@ -1,5 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import manifest from './models.gen.json';
+import type { CarId } from '../../../sim/src/index';
 
 /** A downloaded car model, measured. Local axes: +z forward, +y up, +x left; wheels' hubs at `wheels[i].hub`. */
 export interface CarKit {
@@ -9,14 +12,26 @@ export interface CarKit {
   /** camera anchors in car space: origin on the ground under the axle midpoint, +z forward, +y up, +x left */
   anchors: CarAnchors;
   /** only for the Car Concept: hub positions (scene space), the yaw each wheel node's axle is off the car's x axis, and the steering wheel's centre/axis */
+  /** normalised Sketchfab cars (tools/build-cars.mjs): the manifest entry */
+  norm?: NormInfo;
   concept?: { hubs: THREE.Vector3[]; axleYaw: number[]; steerCentre: THREE.Vector3; steerAxis: THREE.Vector3 };
 }
+export interface NormInfo { paintable: boolean; staticWheels: boolean; tris: number; }
 export interface CarAnchors { head: THREE.Vector3; hood: THREE.Vector3; bumper: THREE.Vector3; }
 /** Anchors for the procedural bodies, which have no mesh to measure. */
 export const defaultAnchors = (): CarAnchors => ({ head: new THREE.Vector3(0.36, 1.02, -0.15), hood: new THREE.Vector3(0, 1.02, 0.35), bumper: new THREE.Vector3(0, 0.5, 2.1) });
 
-/** kind 0 is the Car Concept (the player's car); kinds 1 and 2 are the older CC0 coupes used by rivals */
-export const CAR_FILES = ['CarConcept', '1990s-sports-car', '1980s-sports-car'];
+/** Model kinds, by index: 0 is the Car Concept (the Aurora); 1 and 2 are the older CC0 coupes (kept for the procedural fallback); 3.. are the normalised selectable cars. */
+export interface ModelDef { file: string; type: 'concept' | 'legacy' | 'norm'; car?: CarId; }
+export const CAR_MODELS: ModelDef[] = [
+  { file: 'CarConcept', type: 'concept', car: 'aurora' }, { file: '1990s-sports-car', type: 'legacy' }, { file: '1980s-sports-car', type: 'legacy' },
+  ...(['corvette', 'cuda', 'mustang', 'golf', 'm635', 'alfa155'] as CarId[]).map((c): ModelDef => ({ file: c, type: 'norm', car: c })),
+];
+/** Model kind that draws a car (falls back to the Aurora). */
+export const kindOf = (id: string): number => Math.max(0, CAR_MODELS.findIndex((m) => m.car === id));
+export const kindCar = (kind: number): CarId => CAR_MODELS[kind]?.car ?? 'aurora';
+/** Models with a heavy mesh: rivals beyond a handful fall back to a lighter one. */
+export const isHeavy = (kind: number) => kind === 0 || ((kits.get(kind)?.norm?.tris ?? 0) >= 60000);
 const kits = new Map<number, CarKit>();
 
 const track = (pos: THREE.Vector3[]) => Math.abs(pos[0].x - pos[1].x);
@@ -49,6 +64,30 @@ function measure(root: THREE.Group): CarKit | null {
   return { anchors, scene: root, wheels: w, wheelR, wheelbase, track: Math.abs(pos[0].x - pos[1].x), halfW: Math.max(bb.max.x, -bb.min.x), halfL: (bb.max.z - bb.min.z) / 2, midZ, groundY: pos[0].y - wheelR, paint, glass };
 }
 
+
+/** Normalised car (+x left, +z forward, y up, origin on the ground under the axle midpoint): wheel_FL/FR/RL/RR nodes at the hubs, materials 'paint' and 'glass'. */
+function measureNorm(root: THREE.Group, id: string): CarKit | null {
+  root.updateMatrixWorld(true);
+  const info = (manifest as Record<string, { wheelR: number; wheelbase: number; track: number; halfW: number; halfL: number; paintable: boolean; staticWheels: boolean; tris: number }>)[id]; if (!info) return null;
+  const find = (s: string) => { let f: THREE.Object3D | null = null; root.traverse((o) => { if (!f && o.name === s) f = o; }); return f as THREE.Object3D | null; };
+  const w = ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR'].map(find) as THREE.Object3D[];
+  if (w.some((x) => !x)) return null;
+  const inWheel = (o: THREE.Object3D) => w.some((x) => x === o || x.getObjectById(o.id));
+  const bb = new THREE.Box3(); root.traverse((o) => { if ((o as THREE.Mesh).isMesh && !inWheel(o)) bb.expandByObject(o); });
+  let paint: THREE.MeshStandardMaterial | null = null, glass: THREE.Material | null = null;
+  root.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) { if (mt.name === 'paint') paint = mt as THREE.MeshStandardMaterial; else if (mt.name === 'glass') glass = mt; } });
+  if (glass) { const g = glass as THREE.MeshStandardMaterial; g.transparent = true; g.depthWrite = false; g.color.multiplyScalar(0.3); g.opacity = 0.6; g.roughness = 0.05; }
+  const rc = new THREE.Raycaster(), meshes: THREE.Object3D[] = []; root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && !inWheel(o) && !(m.material as THREE.Material).transparent) meshes.push(o); });
+  const topAt = (x: number, z: number) => { rc.set(new THREE.Vector3(x, bb.max.y + 1, z), new THREE.Vector3(0, -1, 0)); const h = rc.intersectObjects(meshes, false)[0]; return h ? h.point.y : bb.min.y; };
+  const wb = info.wheelbase;
+  const anchors: CarAnchors = {
+    head: new THREE.Vector3(HEAD_X * info.track, HEAD_H, -wb * 0.12),
+    hood: new THREE.Vector3(0, topAt(0, wb * 0.3) + 0.42, wb * 0.12),
+    bumper: new THREE.Vector3(0, 0.5, bb.max.z - 0.15),
+  };
+  return { anchors, scene: root, wheels: w, wheelR: info.wheelR, wheelbase: wb, track: info.track, halfW: info.halfW, halfL: info.halfL, midZ: 0, groundY: 0, paint, glass,
+    norm: { paintable: info.paintable, staticWheels: info.staticWheels, tris: info.tris } };
+}
 
 /** Plain Brazilian-style plate: the model's own texture carries the Khronos logo, which the licence excludes, so it is never used. */
 function plateTexture() {
@@ -112,12 +151,13 @@ function measureConcept(root: THREE.Group): CarKit | null {
 
 /** Load all models once. Failures leave the kit missing so callers fall back to the procedural body. */
 export async function preloadCars(base = '/') {
-  const loader = new GLTFLoader();
-  await Promise.all(CAR_FILES.map(async (f, i) => {
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  await Promise.all(CAR_MODELS.map(async (m, i) => {
+    if (m.type === 'legacy') return; // the CC0 coupes are no longer drawn; kinds 1 and 2 fall back to procedural bodies
     try {
-      const g = await loader.loadAsync(`${base}assets/cars/${f}.glb`), k = i === 0 ? measureConcept(g.scene) : measure(g.scene);
-      if (k) kits.set(i, k); else console.warn('car model not recognised', f);
-    } catch (e) { console.warn('car model failed', f, e); }
+      const g = await loader.loadAsync(`${base}assets/cars/${m.file}.glb`), k = m.type === 'concept' ? measureConcept(g.scene) : m.type === 'norm' ? measureNorm(g.scene, m.file) : measure(g.scene);
+      if (k) kits.set(i, k); else console.warn('car model not recognised', m.file);
+    } catch (e) { console.warn('car model failed', m.file, e); }
   }));
   try { cockpit = (await loader.loadAsync(`${base}assets/cars/sports-car-cockpit-light.glb`)).scene; } catch (e) { console.warn('cockpit model failed', e); }
 }

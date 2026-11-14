@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { DT, WEATHER, createRace, noInput, stepRace, type Entrant, type Input, type Race, type Racer, type Track, type WeatherKind } from '../../../sim/src/index';
+import { DT, WEATHER, createRace, noInput, stepRace, steerNorm, type Entrant, type Input, type Race, type Racer, type Track, type WeatherKind } from '../../../sim/src/index';
 import { CarVisual } from '../car/visual';
 import type { Engine } from '../gfx/engine';
 import type { World } from '../world/base';
@@ -56,7 +56,7 @@ export class Session {
       const c = q.car, p = this.prev[i]; let dy = c.yaw - p[3]; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), k = c.loc.idx, rel = ct * t.tx[k] + st * t.tz[k], relS = -st * t.tx[k] + ct * t.tz[k];
       this.visuals[i].place(p[0] + (c.x - p[0]) * a, p[1] + (c.y - p[1]) * a, p[2] + (c.z - p[2]) * a, p[3] + dy * a, {
-        speed: c.vx, steer: c.steer, ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt, lamps: LOOK[this.weather].lamps });
+        speed: c.vx, steer: c.steer, steerN: steerNorm(c.spec, c.vx, c.grip, c.steer), ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt, lamps: LOOK[this.weather].lamps });
       this.spray?.emit(i, dt, this.visuals[i].group.position.x, this.visuals[i].group.position.y, this.visuals[i].group.position.z, ct, st, c.vx);
     });
     if (this.ghostCar) {

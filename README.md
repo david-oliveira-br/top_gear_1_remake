@@ -9,6 +9,8 @@ público (ver `packages/game/public/assets/CREDITS.md`).
 
 Exceção: o carro do jogador é o "Car Concept" de Eric Chadwick (Darmstadt Graphics Group GmbH) para o Khronos Group, 2024, a partir de um modelo de domínio público de Unity Fan — licença [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), fonte <https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept>. Modificado: logotipos (Khronos, 3D Commerce) e placa removidos/substituídos, peças internas ocultadas, pintura, rodas e faróis recoloridos em tempo de execução. A licença exclui logotipos e marcas; nenhum é exibido.
 
+Carros selecionáveis (modelos do Sketchfab, convertidos por `npm run build:cars` a partir de `assets/*.zip`): Corvette Grand Sport 1962, Plymouth Barracuda 1970 e Ford Mustang GT Fastback (amogusstrikesback2, CC BY 4.0); VW Golf GTI 1976, BMW M635CSi 1986 e Alfa Romeo 155 Q4 1992 (OUTPISTON, **CC BY-NC-SA 4.0 — uso não comercial apenas**; as versões modificadas seguem a mesma licença). Modificados: reorientados/reescalados, rodas separadas em nós `wheel_FL/FR/RL/RR`, materiais renomeados (`paint`, `glass`), malha simplificada, texturas a 1024 px (WebP) e compressão Meshopt. Autor, fonte e texto de licença de cada um em `packages/game/public/assets/CREDITS.md` e `packages/game/public/assets/cars/licenses/`. Para publicar ou vender o jogo, remova ou substitua os três modelos NC-SA.
+
 ## Rodar
 
 ```bash
