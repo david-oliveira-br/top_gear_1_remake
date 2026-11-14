@@ -2,17 +2,20 @@ import type { Driver } from './ai';
 import { DEFAULT_CAR, carById, type CarId } from './cars';
 import { MAX_LEVEL, PART_PRICE, buildSpec, defaultTuning, noParts, type PartId, type Parts, type Tuning } from './specs';
 
-export interface City { id: string; name: string; country: string; lat: number; lon: number; landmark: string; /** reputation needed to travel there */ rep: number; ready: boolean; }
+export interface City { id: string; name: string; country: string; lat: number; lon: number; landmark: string; /** reputation needed to travel there */ rep: number; ready: boolean;
+  /** event id that must have been won (place 1) before the city opens */ needs?: string; }
 
 export const CITIES: City[] = [
   { id: 'rio', name: 'Rio de Janeiro', country: 'Brasil', lat: -22.95, lon: -43.21, landmark: 'Cristo Redentor', rep: 0, ready: true },
   { id: 'bigsur', name: 'Big Sur', country: 'EUA', lat: 36.27, lon: -121.81, landmark: 'Ponte em arco e farol', rep: 30, ready: true },
-  { id: 'london', name: 'Londres', country: 'Reino Unido', lat: 51.5, lon: -0.12, landmark: 'Torre do relógio', rep: 220, ready: false },
-  { id: 'rome', name: 'Roma', country: 'Itália', lat: 41.89, lon: 12.49, landmark: 'Coliseu', rep: 320, ready: false },
-  { id: 'bergen', name: 'Bergen', country: 'Noruega', lat: 60.39, lon: 5.32, landmark: 'Fiordes', rep: 420, ready: false },
-  { id: 'cairo', name: 'Cairo', country: 'Egito', lat: 30.04, lon: 31.24, landmark: 'Pirâmides', rep: 520, ready: false },
-  { id: 'tokyo', name: 'Tóquio', country: 'Japão', lat: 35.68, lon: 139.69, landmark: 'Torre treliçada', rep: 640, ready: false },
-  { id: 'sydney', name: 'Sydney', country: 'Austrália', lat: -33.86, lon: 151.21, landmark: 'Ópera e ponte', rep: 760, ready: false },
+  { id: 'banff', name: 'Banff', country: 'Canadá', lat: 51.18, lon: -115.57, landmark: 'Lago glacial e picos nevados', rep: 90, ready: true },
+  { id: 'patagonia', name: 'Torres del Paine', country: 'Chile', lat: -50.94, lon: -73.41, landmark: 'Torres de granito', rep: 170, ready: true, needs: 'rio-rival' },
+  { id: 'london', name: 'Londres', country: 'Reino Unido', lat: 51.5, lon: -0.12, landmark: 'Torre do relógio', rep: 220, ready: false, needs: 'rio-rival' },
+  { id: 'rome', name: 'Roma', country: 'Itália', lat: 41.89, lon: 12.49, landmark: 'Coliseu', rep: 320, ready: false, needs: 'rio-rival' },
+  { id: 'bergen', name: 'Bergen', country: 'Noruega', lat: 60.39, lon: 5.32, landmark: 'Fiordes', rep: 420, ready: false, needs: 'rio-rival' },
+  { id: 'cairo', name: 'Cairo', country: 'Egito', lat: 30.04, lon: 31.24, landmark: 'Pirâmides', rep: 520, ready: false, needs: 'rio-rival' },
+  { id: 'tokyo', name: 'Tóquio', country: 'Japão', lat: 35.68, lon: 139.69, landmark: 'Torre treliçada', rep: 640, ready: false, needs: 'rio-rival' },
+  { id: 'sydney', name: 'Sydney', country: 'Austrália', lat: -33.86, lon: 151.21, landmark: 'Ópera e ponte', rep: 760, ready: false, needs: 'rio-rival' },
 ];
 
 export type EventKind = 'grid' | 'duel' | 'trial' | 'rival';
@@ -47,6 +50,20 @@ export const EVENTS: RaceEvent[] = [
     prize: [9000, 6200, 4400, 3000, 2000, 1300, 850, 550], fame: [40, 27, 18, 12, 8, 5, 3, 1] },
   { id: 'coast-trial', city: 'bigsur', track: 'coast', kind: 'trial', name: 'Sprint do Farol', blurb: 'Estrada livre até o farol. Só você, o oceano e o cronômetro.', laps: 1, rep: 30,
     rivals: [], prize: [6500, 3800, 1900, 500], fame: [30, 18, 9, 1], medals: [162, 170, 181] },
+  { id: 'rockies-run', city: 'banff', track: 'rockies', kind: 'grid', name: 'Corrida da Parkway', blurb: 'Do lago aos grampos e à passagem nevada. Largada na margem, chegada no alojamento.', laps: 1, rep: 90,
+    rivals: [...field(1, [1, 5, 3], D('Maeve', 0.925, 0.6, 0.85), D('Logan', 0.91, 0.5, 0.8), D('Tessa', 0.895, 0.7, 0.7)), ...field(0, [8, 6, 2, 7], D('Gus', 0.88, 0.4, 0.8), D('Piper', 0.865, 0.8, 0.6), D('Dale', 0.85, 0.5, 0.7), D('Hazel', 0.83, 0.6, 0.5))],
+    prize: [12000, 8400, 6000, 4000, 2700, 1800, 1100, 700], fame: [50, 34, 23, 15, 10, 6, 3, 1] },
+  { id: 'rockies-trial', city: 'banff', track: 'rockies', kind: 'trial', name: 'Sprint da Passagem', blurb: 'Estrada livre até o alojamento. Só você, a neve e o cronômetro.', laps: 1, rep: 90,
+    rivals: [], prize: [8000, 4800, 2400, 600], fame: [35, 21, 11, 1], medals: [159.3, 167.1, 177.8] },
+  { id: 'rockies-duel', city: 'banff', track: 'rockies', kind: 'duel', name: 'Duelo nos Grampos', blurb: 'Um contra um com Maeve, a guarda-parque que conhece cada curva.', laps: 1, rep: 130,
+    rivals: field(2, [4], D('Maeve', 0.945, 0.7, 0.92)), prize: [11000, 2000], fame: [45, 6] },
+  { id: 'pata-run', city: 'patagonia', track: 'patagonia', kind: 'grid', name: 'Corrida do Fim do Mundo', blurb: 'Estepe, lago glacial, bosque de lengas e morena. Chegada diante das torres.', laps: 1, rep: 170,
+    rivals: [...field(2, [1, 5, 3], D('Mateo', 0.945, 0.6, 0.85), D('Valentina', 0.93, 0.5, 0.9), D('Joaquín', 0.915, 0.8, 0.7)), ...field(1, [8, 6, 2, 7], D('Camila', 0.9, 0.4, 0.8), D('Ignacio', 0.885, 0.7, 0.6), D('Sofía', 0.87, 0.5, 0.7), D('Tomás', 0.85, 0.6, 0.6))],
+    prize: [16000, 11200, 8000, 5400, 3600, 2400, 1500, 900], fame: [65, 44, 30, 20, 13, 8, 4, 2] },
+  { id: 'pata-trial', city: 'patagonia', track: 'patagonia', kind: 'trial', name: 'Contra o Vento', blurb: 'Estrada livre rumo às torres. Só você, o vento e o cronômetro.', laps: 1, rep: 170,
+    rivals: [], prize: [10000, 6000, 3000, 800], fame: [40, 24, 12, 1], medals: [163.7, 171.8, 182.7] },
+  { id: 'pata-rival', city: 'patagonia', track: 'patagonia', kind: 'rival', name: 'El Cóndor', blurb: 'O dono da Ruta del Fin del Mundo não divide a estrada com ninguém.', laps: 1, rep: 240,
+    rivals: field(3, [12], D('El Cóndor', 0.97, 0.9, 0.97)), prize: [30000, 3500], fame: [140, 12] },
 ];
 
 /** Everything the player owns and has set up for one car. */
@@ -92,7 +109,12 @@ export function rivalSpec(level: number, car: CarId) {
 }
 
 export const eventOpen = (c: Career, e: RaceEvent) => c.rep >= e.rep;
-export const cityOpen = (c: Career, city: City) => city.ready && c.rep >= city.rep && (city.id === 'rio' || city.id === 'bigsur' || c.results['rio-rival']?.place === 1);
+export const cityOpen = (c: Career, city: City) => city.ready && c.rep >= city.rep && (!city.needs || c.results[city.needs]?.place === 1);
+/** A city is finished once its rival event is won, or (without one) every event of the city has been won. */
+export function cityDone(c: Career, city: City) {
+  const evs = EVENTS.filter((e) => e.city === city.id), rival = evs.find((e) => e.kind === 'rival');
+  return rival ? c.results[rival.id]?.place === 1 : evs.length > 0 && evs.every((e) => c.results[e.id]?.place === 1);
+}
 
 /** Trial result: 1 gold, 2 silver, 3 bronze, 4 none. */
 export function medal(e: RaceEvent, bestTicks: number) {

@@ -54,10 +54,18 @@ export const SONGS: Record<string, Song> = {
     title: 'Dust Devil', bpm: 118, root: 45, scale: MINOR, prog: [[0, 6, 5, 6], [5, 6, 0, 0]], bass: 'sixteenth', drums: 'four', arp: 8,
     lead: [['4:4 4:2 7:2 4:8', '6:4 6:2 8:2 6:8', '5:4 5:2 7:2 9:8', '8:8 6:8'], ['11:8 9:8', '10:8 8:8', '9:4 7:4 4:8', '7:12 -:4']],
   },
+  canada: {
+    title: 'Icefield', bpm: 100, root: 43, scale: DORIAN, prog: [[0, 6, 3, 6], [5, 3, 6, 0]], bass: 'half', drums: 'half', arp: 8,
+    lead: [['-:4 4:6 2:2 5:4', '-:4 7:8 5:4', '-:4 6:6 4:2 2:4', '4:12 -:4'], ['9:8 7:4 5:4', '8:12 6:4', '7:8 9:4 11:4', '9:12 -:4']],
+  },
+  andes: {
+    title: 'Viento Sur', bpm: 110, root: 45, scale: PHRYG, prog: [[0, 1, 0, 6], [3, 4, 1, 0]], bass: 'gallop', drums: 'four', arp: 16,
+    lead: [['4:3 4:3 5:2 4:8', '5:3 5:3 7:2 5:8', '4:3 4:3 2:2 1:8', '0:12 -:4'], ['7:6 8:2 9:8', '8:6 9:2 11:8', '9:4 8:4 7:8', '5:4 4:4 0:8']],
+  },
   midnight: {
     title: 'Midnight Lanes', bpm: 86, root: 41, scale: MINOR, prog: [[0, 5, 3, 4], [5, 6, 0, 0]], bass: 'half', drums: 'half', arp: 16,
     lead: [['-:4 2:4 4:8', '-:4 5:4 7:8', '-:4 3:4 5:8', '4:8 6:8'], ['9:8 7:8', '9:8 5:8', '7:8 9:4 11:4', '11:16']],
   },
 };
 /** Songs offered in the jukebox for races. */
-export const RACE_SONGS = ['brazil', 'usa', 'japan', 'norway', 'italy', 'uk', 'egypt', 'australia', 'midnight'];
+export const RACE_SONGS = ['brazil', 'usa', 'japan', 'norway', 'italy', 'uk', 'egypt', 'australia', 'canada', 'andes', 'midnight'];

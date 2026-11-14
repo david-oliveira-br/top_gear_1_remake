@@ -30,5 +30,21 @@ await page.waitForFunction('window.__info && window.__info.screen === "results"'
 let c = await info(); if (c.screen !== 'results') await fail('coast race did not reach the results screen: ' + JSON.stringify(c));
 if (!(c.money > 2500 && c.rep > 0)) await fail('coast: no prize banked: ' + JSON.stringify(c));
 console.log('coast race finished, place', c.place, 'money', c.money, 'rep', c.rep, 'fps', await page.evaluate('window.__fps'));
+// rockies: autopilot to the results screen on the stub/real world
+await page.goto('http://localhost:5174/?go=race&ev=rockies-run&auto=1&t=126&rep=100'); await page.evaluate(() => localStorage.clear()); await page.reload();
+await page.waitForFunction('window.__ready', null, { timeout: 180000 });
+const roi = await info(); if (roi.track !== 'rockies') await fail('rockies world did not load: ' + JSON.stringify(roi));
+await page.waitForFunction('window.__info && window.__info.screen === "results"', null, { timeout: 120000 }).catch(() => {});
+const ror = await info(); if (ror.screen !== 'results') await fail('rockies race did not reach the results screen: ' + JSON.stringify(ror));
+if (!(ror.money > 2500 && ror.rep > 0)) await fail('rockies: no prize banked: ' + JSON.stringify(ror));
+console.log('rockies race finished, place', ror.place, 'money', ror.money, 'rep', ror.rep, 'fps', await page.evaluate('window.__fps'));
+// patagonia: autopilot to the results screen on the stub/real world
+await page.goto('http://localhost:5174/?go=race&ev=pata-run&auto=1&t=130&rep=200'); await page.evaluate(() => localStorage.clear()); await page.reload();
+await page.waitForFunction('window.__ready', null, { timeout: 180000 });
+const pai = await info(); if (pai.track !== 'patagonia') await fail('patagonia world did not load: ' + JSON.stringify(pai));
+await page.waitForFunction('window.__info && window.__info.screen === "results"', null, { timeout: 120000 }).catch(() => {});
+const par = await info(); if (par.screen !== 'results') await fail('patagonia race did not reach the results screen: ' + JSON.stringify(par));
+if (!(par.money > 2500 && par.rep > 0)) await fail('patagonia: no prize banked: ' + JSON.stringify(par));
+console.log('patagonia race finished, place', par.place, 'money', par.money, 'rep', par.rep, 'fps', await page.evaluate('window.__fps'));
 if (errors.length) await fail('page errors');
 console.log('SMOKE OK'); await browser.close();

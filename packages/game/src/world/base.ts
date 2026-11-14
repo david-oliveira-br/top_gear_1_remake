@@ -2,13 +2,25 @@ import * as THREE from 'three/webgpu';
 import { uniform, texture, uv, vec3, float, mix, fog, rangeFogFactor, mx_noise_float, normalMap, positionWorld, dot, vec2, sin, time, smoothstep, step, fract } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { locate, WEATHER, type Loc, type Track, type WeatherKind } from '../../../sim/src/index';
-import { LOOK, Precip, flashU, skyNode, snowU, wetU } from './weather';
+import { LOOK, Precip, flashU, skyNode, snowU, wetU, windU } from './weather';
 import type { Engine } from '../gfx/engine';
 
 export const A = '/assets/';
 const loader = new THREE.TextureLoader();
+// Textures are cached by file: worlds share them. Each world records what it asked for while it builds (`owner`) and releases it in dispose().
+const texCache = new Map<string, { t: THREE.Texture; refs: number }>();
+let owner: Set<string> | null = null;
 export function tex(name: string, srgb = false) {
-  const t = loader.load(A + name); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; return t;
+  const key = (srgb ? 's:' : 'l:') + name; let e = texCache.get(key);
+  if (!e) {
+    const t = loader.load(A + name); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    texCache.set(key, (e = { t, refs: 0 }));
+  }
+  if (owner && !owner.has(key)) { owner.add(key); e.refs++; }
+  return e.t;
+}
+function releaseTex(keys: Set<string>) {
+  for (const key of keys) { const e = texCache.get(key); if (e && --e.refs <= 0) { e.t.dispose(); texCache.delete(key); } }
 }
 export const set = (id: string) => ({ map: tex(id + '_diffuse.jpg', true), nor: tex(id + '_nor_gl.jpg'), rough: tex(id + '_rough.jpg') });
 export type TexSet = ReturnType<typeof set>;
@@ -25,6 +37,8 @@ export const sstep = (a: number, b: number, x: number) => { const t = Math.max(0
 export const std = (color: number, roughness = 0.8, metalness = 0) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness });
 export const M = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(sx, sy, sz));
 
+/** A flat rectangle of water (lake, fjord, sea) at height y. */
+export interface WaterDef { y: number; x0: number; z0: number; x1: number; z1: number; color: [number, number, number]; rough?: number; }
 export interface BridgeRange { from: number; to: number; }
 /** Everything that makes one place different; `World` does the rest. */
 export interface WorldDef {
@@ -39,7 +53,13 @@ export interface WorldDef {
   seaColor: [number, number, number]; seaSize?: number; seaCenter?: [number, number];
   terrainMaterial: (w: World) => THREE.Material;
   roadMaterial: (w: World) => THREE.Material;
-  barrier: 'concrete' | 'rail';
+  barrier: 'concrete' | 'rail' | 'fence' | 'none';
+  /** HDR sky file in public/assets (default kloppenheim_06_puresky_4k.hdr) */
+  hdr?: string;
+  /** Water surfaces. undefined = the legacy sea (a plane at y = 0 from seaColor / seaSize / seaCenter), [] = none. */
+  water?: WaterDef[];
+  /** wind (x, z) in m/s: rain slants and snow drifts with it (default [2.4, 1.2], the original slant) */
+  wind?: [number, number];
   /** an arc-length range where the road is a bridge: terrain is not raised to it and no barrier/verge is drawn */
   bridge?: BridgeRange;
   /** how far (m) beyond the shoulder the road cut blends into the land */
@@ -51,18 +71,25 @@ export interface WorldDef {
 
 // one fog node shared by every world: switching places only changes uniforms, so no shader recompiles
 const fogColor = uniform(new THREE.Vector3(0.6, 0.56, 0.58)), fogNear = uniform(400), fogFar = uniform(9000);
-let hdrP: Promise<{ hdr: THREE.Texture; lat: number; lon: number }> | null = null;
-function loadSky() {
-  return (hdrP ??= new HDRLoader().loadAsync(A + 'kloppenheim_06_puresky_4k.hdr').then((hdr) => {
-    hdr.mapping = THREE.EquirectangularReflectionMapping;
-    const img = hdr.image as { data: Uint16Array; width: number; height: number };
-    let best = 0, bu = 0, bv = 0;
-    for (let y = 0; y < img.height / 2; y += 3) for (let x = 0; x < img.width; x += 3) {
-      const i = (y * img.width + x) * 4, l = THREE.DataUtils.fromHalfFloat(img.data[i]) + THREE.DataUtils.fromHalfFloat(img.data[i + 1]) + THREE.DataUtils.fromHalfFloat(img.data[i + 2]);
-      if (l > best) { best = l; bu = x / img.width; bv = y / img.height; }
-    }
-    return { hdr, lat: (0.5 - bv) * Math.PI, lon: (bu - 0.5) * Math.PI * 2 };
-  }));
+type Sky = { hdr: THREE.Texture; lat: number; lon: number };
+const skyCache = new Map<string, { p: Promise<Sky>; refs: number }>();
+const SKY0 = 'kloppenheim_06_puresky_4k.hdr';
+function loadSky(file: string) {
+  let e = skyCache.get(file);
+  if (!e) {
+    const p = new HDRLoader().loadAsync(A + file).then((hdr) => {
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
+      const img = hdr.image as { data: Uint16Array; width: number; height: number };
+      let best = 0, bu = 0, bv = 0;
+      for (let y = 0; y < img.height / 2; y += 3) for (let x = 0; x < img.width; x += 3) {
+        const i = (y * img.width + x) * 4, l = THREE.DataUtils.fromHalfFloat(img.data[i]) + THREE.DataUtils.fromHalfFloat(img.data[i + 1]) + THREE.DataUtils.fromHalfFloat(img.data[i + 2]);
+        if (l > best) { best = l; bu = x / img.width; bv = y / img.height; }
+      }
+      return { hdr, lat: (0.5 - bv) * Math.PI, lon: (bu - 0.5) * Math.PI * 2 };
+    });
+    skyCache.set(file, (e = { p, refs: 0 }));
+  }
+  e.refs++; return e.p;
 }
 
 export class World {
@@ -71,7 +98,7 @@ export class World {
   pulse = uniform(0);
   /** lateral limit of the drivable surface (road + shoulder) */
   lim: number;
-  private rot = 0;
+  private rot = 0; private texKeys = new Set<string>(); private skyFile: string | null = null; private disposed = false;
   private nearest = new Int32Array(0); private gx0: number; private gz0: number; private cell: number; private gw = 0; private gh = 0; private height!: Float32Array;
 
   constructor(public eng: Engine, public track: Track, public def: WorldDef) {
@@ -82,7 +109,8 @@ export class World {
 
   async build() {
     const eng = this.eng, q = eng.quality, def = this.def;
-    const { hdr, lat, lon } = await loadSky();
+    this.skyFile = def.hdr ?? SKY0;
+    const { hdr, lat, lon } = await loadSky(this.skyFile);
     const hx = Math.cos(lat) * Math.cos(lon), hz = Math.cos(lat) * Math.sin(lon);
     const want = Math.atan2(this.sunDir.z, this.sunDir.x), have = Math.atan2(hz, hx); this.rot = have - want;
     const el = Math.max(0.3, lat), c = Math.cos(el); this.sunDir.set(Math.cos(want) * c, Math.sin(el), Math.sin(want) * c);
@@ -90,7 +118,26 @@ export class World {
     const s = this.sun; s.castShadow = true; s.shadow.mapSize.set(q.shadow, q.shadow); s.shadow.bias = -0.0004; s.shadow.normalBias = 0.06;
     Object.assign(s.shadow.camera, { left: -95, right: 95, top: 95, bottom: -95, near: 10, far: 700 }); s.shadow.camera.updateProjectionMatrix();
     this.group.add(s, s.target);
-    this.terrain(); this.road(); this.barriers(); this.sea(); def.props(this);
+    owner = this.texKeys; // textures asked for during the (synchronous) build below belong to this world
+    try { this.terrain(); this.road(); this.barriers(); this.sea(); def.props(this); } finally { owner = null; }
+  }
+
+  /** Free everything this world owns: geometries, materials, its textures (shared ones when the last user goes), sky and lights. */
+  dispose() {
+    if (this.disposed) return; this.disposed = true;
+    const sc = this.eng.scene; if (this.group.visible) this.show(false);
+    if ((sc.background as unknown) === (this as any).hdr) { sc.background = null; sc.environment = null; }
+    this.group.traverse((o) => {
+      const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose();
+      const mats = (m.material ? (Array.isArray(m.material) ? m.material : [m.material]) : []) as (THREE.Material & { map?: THREE.Texture | null })[];
+      for (const mm of mats) { mm.map?.dispose(); mm.dispose(); }
+    });
+    this.sun.dispose(); this.sun.shadow.map?.dispose();
+    this.group.removeFromParent(); this.group.clear();
+    if (this.precip) { this.precip.dispose(); this.precip = null; }
+    releaseTex(this.texKeys); this.texKeys = new Set();
+    if (this.skyFile) { const e = skyCache.get(this.skyFile); if (e && --e.refs <= 0) { skyCache.delete(this.skyFile); e.p.then((s) => s.hdr.dispose()); } this.skyFile = null; }
+    (this as any).hdr = null;
   }
 
   /** Make this the visible world: sky, fog, light. */
@@ -110,7 +157,7 @@ export class World {
   setWeather(kind: WeatherKind) { this.weather = kind; if (this.group.visible) this.applyWeather(); }
   private applyWeather() {
     const eng = this.eng, d = this.def, kind = this.weather, L = LOOK[kind], info = WEATHER[kind], sc = eng.scene;
-    wetU.value = info.wet; snowU.value = kind === 'snow' ? 1 : 0; flashU.value = 0; this.flash = 0; this.nextFlash = 2 + Math.random() * 3;
+    windU.value.set(...(d.wind ?? [2.4, 1.2])); wetU.value = info.wet; snowU.value = kind === 'snow' ? 1 : 0; flashU.value = 0; this.flash = 0; this.nextFlash = 2 + Math.random() * 3;
     sc.environmentIntensity = L.env; sc.backgroundIntensity = L.bg; this.sun.color.setHex(L.sunColor ?? d.sunColor); this.sun.intensity = L.sun; this.baseSun = L.sun; this.baseEnv = L.env;
     let tint = 1;
     if (L.sky) {
@@ -207,8 +254,9 @@ export class World {
   }
 
   private barriers() {
-    const t = this.track, n = t.n, lim = this.lim, L = t.open ? n : n + 1, rail = this.def.barrier === 'rail';
+    const t = this.track, n = t.n, lim = this.lim, L = t.open ? n : n + 1, rail = this.def.barrier === 'rail', kind = this.def.barrier; if (kind === 'none') return;
     // concrete: painted top band; rail: a corrugated W-beam on posts
+    if (kind === 'fence') { this.fence(); return; }
     const prof = rail ? [[0.3, 0.42], [0.36, 0.5], [0.3, 0.58], [0.38, 0.66], [0.3, 0.74], [0.3, 0.78]] : [[0, 0], [0.1, 0.28], [0.17, 0.86], [0.4, 0.86], [0.47, 0.28], [0.57, 0]];
     const bp: number[] = [], bu: number[] = [], bi: number[] = [];
     for (const side of [-1, 1]) {
@@ -241,16 +289,44 @@ export class World {
     }
   }
 
+  /** Ranch fence: timber posts every 3 m with three taut wires on each side of the road (not on bridges). */
+  private fence() {
+    const t = this.track, n = t.n, lim = this.lim, L = t.open ? n : n + 1, heights = [0.5, 0.82, 1.14], off = 0.3;
+    const wp: number[] = [], wi: number[] = [];
+    for (const side of [-1, 1]) for (const hy of heights) {
+      const base0 = wp.length / 3;
+      for (let i = 0; i < L; i++) {
+        const k = i % n, lt = side * (lim + off), x = t.px[k] - t.tz[k] * lt, z = t.pz[k] + t.tx[k] * lt, y = t.py[k] + side * lim * t.bank[k] + hy;
+        wp.push(x, y, z, x, y + 0.035, z);
+        if (i < L - 1 && this.bridgeW((k + 0.5) * t.step, 1) < 0.5) { const a = base0 + i * 2, b = a + 2; wi.push(a, a + 1, b, a + 1, b + 1, b); }
+      }
+    }
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3)); wg.setIndex(wi);
+    const wire = new THREE.Mesh(wg, new THREE.MeshStandardNodeMaterial({ color: 0x8a8d90, roughness: 0.5, metalness: 0.8, side: THREE.DoubleSide })); wire.frustumCulled = false; wire.castShadow = true; this.group.add(wire);
+    const post = new THREE.BoxGeometry(0.13, 1.25, 0.13).translate(0, 0.62, 0), mats: THREE.Matrix4[] = [], q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1);
+    const stp = Math.max(1, Math.round(3 / t.step));
+    for (let i = 0; i < n; i += stp) {
+      if (this.bridgeW(i * t.step, 1) > 0.5) continue;
+      for (const side of [-1, 1]) { const lt = side * (lim + off); q.setFromEuler(new THREE.Euler(0, Math.atan2(-t.tz[i], t.tx[i]), 0)); mats.push(new THREE.Matrix4().compose(new THREE.Vector3(t.px[i] - t.tz[i] * lt, t.py[i] + side * lim * t.bank[i] - 0.05, t.pz[i] + t.tx[i] * lt), q, sc)); }
+    }
+    const im = new THREE.InstancedMesh(post, std(0x5a4636, 0.9), mats.length); mats.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = true; im.frustumCulled = false; this.group.add(im);
+  }
+
   private sea() {
-    const d = this.def, S = d.seaSize ?? 9000, g = new THREE.PlaneGeometry(S, S, 1, 1); g.rotateX(-Math.PI / 2);
+    const d = this.def, waters: WaterDef[] = d.water ?? [(() => { const S = d.seaSize ?? 9000, c = d.seaCenter ?? [0, 0]; return { y: 0, x0: c[0] - S / 2, x1: c[0] + S / 2, z0: c[1] - S / 2, z1: c[1] + S / 2, color: d.seaColor }; })()];
+    for (const w of waters) this.waterPlane(w);
+  }
+
+  private waterPlane(wd: WaterDef) {
+    const d = this.def, g = new THREE.PlaneGeometry(wd.x1 - wd.x0, wd.z1 - wd.z0, 1, 1); g.rotateX(-Math.PI / 2);
     const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
     const p = positionWorld.xz, tt = time.mul(0.6);
     const w = (k: number, ax: number, az: number, sp: number) => sin(dot(p, vec2(ax, az)).mul(k).add(tt.mul(sp)));
     const nx = w(0.21, 1, 0.3, 1.1).mul(0.05).add(w(0.83, -0.4, 1, 1.7).mul(0.035)).add(mx_noise_float(vec3(p.mul(0.9), tt)).mul(0.07));
     const nz = w(0.17, 0.2, 1, 0.9).mul(0.05).add(w(0.67, 1, 0.6, 1.5).mul(0.035)).add(mx_noise_float(vec3(p.mul(0.9).add(31), tt)).mul(0.07));
     m.normalNode = vec3(nx, nz, 1).normalize();
-    m.colorNode = vec3(...d.seaColor); m.roughnessNode = float(0.07);
-    const mesh = new THREE.Mesh(g, m); mesh.position.set(d.seaCenter?.[0] ?? 0, 0, d.seaCenter?.[1] ?? 0); mesh.frustumCulled = false; this.group.add(mesh);
+    m.colorNode = vec3(...wd.color); m.roughnessNode = float(wd.rough ?? 0.07);
+    const mesh = new THREE.Mesh(g, m); mesh.position.set((wd.x0 + wd.x1) / 2, wd.y, (wd.z0 + wd.z1) / 2); mesh.frustumCulled = false; this.group.add(mesh);
   }
 
   /** Instanced mesh helper for props. */

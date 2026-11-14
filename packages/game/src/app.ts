@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { CARS, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
+import { CARS, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityDone, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
   WEATHER, allowedWeather, pickWeather, carById, carStats, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
@@ -13,6 +13,8 @@ import { type Settings, loadCareer, loadSettings, saveCareer, saveSettings } fro
 import { clock, h, money } from './ui/dom';
 import { makeCoast } from './world/coast';
 import { makeRio } from './world/rio';
+import { makeRockies } from './world/rockies';
+import { makePatagonia } from './world/patagonia';
 import type { World } from './world/base';
 
 const PART_INFO: Record<PartId, [string, string]> = {
@@ -28,7 +30,10 @@ const CAR_CREDIT: Record<CarId, string> = {
   corvette: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', cuda: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', mustang: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.',
   golf: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', m635: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', alfa155: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.',
 };
-const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO' };
+const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO', rockies: 'AS MONTANHAS ROCHOSAS', patagonia: 'A PATAGÔNIA' };
+const MAKE: Record<string, (eng: Engine, track: Track) => World> = { rio: makeRio, coast: makeCoast, rockies: makeRockies, patagonia: makePatagonia };
+/** Soundtrack of each region's races. */
+const RACE_SONG: Record<string, string> = { rio: 'brazil', coast: 'usa', rockies: 'canada', patagonia: 'andes' };
 
 export class App {
   eng: Engine; world!: World; rioTrack: Track = buildTrack(RIO); track: Track = this.rioTrack; curId = 'rio'; private worlds = new Map<string, { world: World; track: Track }>();
@@ -53,13 +58,13 @@ export class App {
     // capture helper: window.__carTris() counts the triangles of the visible car meshes (one pass, no shadows)
     (window as any).__carTris = () => { const out: Record<string, number> = {}; const count = (g: THREE.Object3D) => { let n = 0; g.traverseVisible((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const gm = m.geometry; n += (gm.index ? gm.index.count : gm.attributes.position.count) / 3; } }); return n; };
       if (this.screen === 'garage') out.garage = count(this.show.group); this.session?.visuals.forEach((v, i) => (out['car' + i] = count(v.group))); return out; };
-    const unlock = () => { this.audio.unlock(); if (this.session) this.weatherSound(this.session.weather); this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
+    const unlock = () => { this.audio.unlock(); if (this.session) this.weatherSound(this.session.weather); this.music(this.screen === 'race' ? this.raceSong() : this.screen === 'garage' ? 'showroom' : 'title'); };
     addEventListener('pointerdown', unlock, { once: true }); addEventListener('keydown', unlock, { once: true });
     const cv = this.eng.canvas;
     cv.addEventListener('pointerdown', () => { this.drag = true; this.orbitAuto = false; }); addEventListener('pointerup', () => (this.drag = false));
     addEventListener('pointermove', (e) => { if (this.drag) this.orbit += e.movementX * 0.006; });
     this.radio.onChange = () => this.radioChip();
-    this.radio.onFail = () => { this.radioDown = true; this.audio.play(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); };
+    this.radio.onFail = () => { this.radioDown = true; this.audio.play(this.screen === 'race' ? this.raceSong() : this.screen === 'garage' ? 'showroom' : 'title'); };
     this.musicBar(); loading.remove();
     if (this.q.get('hideui')) this.ui.style.display = 'none'; // capture helpers: ?hideui=1&orbit=<radians>
     if (this.q.get('orbit')) { this.orbit = +this.q.get('orbit')!; this.orbitAuto = false; }
@@ -85,11 +90,12 @@ export class App {
     if (this.settings.radioOn && this.radio.url && !this.radioDown) { this.audio.stopMusic(); if (!this.radio.el) this.radio.play(this.audio.ctx, this.audio.master); }
     else { this.radio.stop(); this.audio.play(name); }
   }
+  private raceSong() { return RACE_SONG[this.curId] ?? 'brazil'; }
   /** Next/previous station; the last stop is the built-in soundtrack. */
   private cycleStation(dir: number) {
     const ids = [...STATIONS.map((x) => x.id), 'game'];
     const cur = this.settings.radioOn && !this.radioDown ? Math.max(0, ids.indexOf(this.radio.station)) : ids.length - 1;
-    const id = ids[(cur + dir + ids.length) % ids.length], mname = this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title';
+    const id = ids[(cur + dir + ids.length) % ids.length], mname = this.screen === 'race' ? this.raceSong() : this.screen === 'garage' ? 'showroom' : 'title';
     if (id === 'game') { this.settings.radioOn = false; this.radio.stop(); this.audio.play(mname); this.camTag('Trilha do jogo', '♪ '); }
     else { this.settings.radioOn = true; this.radioDown = false; this.radio.choose(id); this.music(mname); this.camTag(this.radio.name, '♪ '); }
     saveSettings(this.settings);
@@ -106,7 +112,7 @@ export class App {
       else if (r.playing) text = '♪ ' + r.name + (r.current ? ' · ' + r.current.tag : '') + ' · ao vivo  (R troca)';
       else text = '♪ Conectando à rádio…';
       const key = text + btn; if (this.bar.dataset.k === key) return; this.bar.dataset.k = key;
-      this.bar.replaceChildren(text, ...(btn ? [h('button.pri', { onclick: () => { a.unlock(); void a.ctx?.resume(); this.radioDown = false; this.music(this.screen === 'race' ? 'brazil' : this.screen === 'garage' ? 'showroom' : 'title'); } }, btn)] : []));
+      this.bar.replaceChildren(text, ...(btn ? [h('button.pri', { onclick: () => { a.unlock(); void a.ctx?.resume(); this.radioDown = false; this.music(this.screen === 'race' ? this.raceSong() : this.screen === 'garage' ? 'showroom' : 'title'); } }, btn)] : []));
     };
     setInterval(() => { draw(); this.bar.style.display = this.screen === 'race' && this.radio.playing && this.audio.ctx?.state === 'running' ? 'none' : ''; }, 400); draw();
   }
@@ -128,12 +134,15 @@ export class App {
   private async enterWorld(id: string) {
     if (this.curId === id) return;
     if (!this.worlds.has(id)) {
+      // keep Rio (home screens) and the most recently used other world (disposed ones are rebuilt lazily; the session is already over here); free the rest so GPU memory stays bounded
+      for (const k of [...this.worlds.keys()]) if (k !== 'rio' && k !== this.lastOther && k !== id) { this.worlds.get(k)!.world.dispose(); this.worlds.delete(k); }
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40))); // let the loading overlay paint before the long build
-      const track = buildTrack(TRACKS[id]), world = id === 'coast' ? makeCoast(this.eng, track) : makeRio(this.eng, track);
+      const track = buildTrack(TRACKS[id]), world = (MAKE[id] ?? makeRio)(this.eng, track);
       await world.build(); this.worlds.set(id, { world, track });
     }
-    this.showWorld(id);
+    this.showWorld(id); if (id !== 'rio') this.lastOther = id;
   }
+  private lastOther = '';
   private endSession() { this.session?.dispose(); this.session = null; this.audio.setEngines(0); this.audio.setWeatherSound(0, 0); for (const v of this.worlds.values()) { v.world.setWeather('clear'); v.world.onThunder = null; } this.paused = false; this.photo = false; }
 
   // ---------- title ----------
@@ -147,7 +156,7 @@ export class App {
   // ---------- world map ----------
   mapScreen(city: City = this.globe.selected) {
     this.endSession(); this.showRio(); this.screen = 'map'; this.clear(); this.show.group.visible = false; this.globe.show(true); this.music('title');
-    this.globe.paint((c) => (c.id === 'rio' && this.career.results['rio-rival']?.place === 1 ? 'done' : cityOpen(this.career, c) ? 'open' : 'lock'));
+    this.globe.paint((c) => (cityDone(this.career, c) ? 'done' : cityOpen(this.career, c) ? 'open' : 'lock'));
     const side = h('div.side');
     this.ui.append(this.topBar('World Tour', () => this.title(), [h('button', { onclick: () => this.garage() }, 'Garagem')]), side);
     for (const c of CITIES) { const el = h('div.lbl' + (cityOpen(this.career, c) ? '' : '.lock'), { onclick: () => pick(c) }, c.name); this.labels.set(c.id, el); this.ui.append(el); }
@@ -155,7 +164,7 @@ export class App {
       this.globe.select(c, animate); for (const [id, el] of this.labels) el.classList.toggle('sel', id === c.id);
       const open = cityOpen(this.career, c), evs = EVENTS.filter((e) => e.city === c.id);
       side.replaceChildren(h('div.panel', null, h('h2', null, c.name), h('div', { style: { color: 'var(--dim)' } }, `${c.country} · ${c.landmark}`),
-        open ? null : h('p', null, !c.ready ? 'Em breve. Esta cidade chega na próxima fase do jogo.' : this.career.rep < c.rep ? `Reputação necessária: ${c.rep}` : 'Vença o Rei da Orla no Rio para viajar.'),
+        open ? null : h('p', null, !c.ready ? 'Em breve. Esta cidade chega na próxima fase do jogo.' : this.career.rep < c.rep ? `Reputação necessária: ${c.rep}` : `Vença "${EVENTS.find((e) => e.id === c.needs)?.name ?? c.needs}" para viajar.`),
         ...(open && evs.length ? [h('div.wxsel', null, h('label', null, 'Clima '), h('select', { onchange: (ev: Event) => { const v = (ev.target as HTMLSelectElement).value; for (const e of evs) { if (v === 'auto') delete this.wxPick[e.id]; else this.wxPick[e.id] = v as WeatherKind; } } },
           h('option', { value: 'auto' }, 'Previsão do dia'), ...Array.from(new Set(evs.flatMap((e) => allowedWeather(TRACKS[e.track])))).map((k) => h('option', { value: k, selected: evs.every((e) => this.wxPick[e.id] === k) }, `${WX_ICON[k]} ${WEATHER[k].name}`))))] : []),
         ...(open ? evs.map((e) => {
@@ -299,7 +308,7 @@ export class App {
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
     const qc = this.q.get('cam') as CamMode | null; if (qc && CAM_CYCLE.includes(qc)) s.cam = qc; // capture helper: ?cam=chase|far|bumper|hood|cockpit
     if (ev.kind === 'trial' && c.ghost[ev.id]) s.setGhost(c.ghost[ev.id], { ...this.look(), paint: 4 }, 3);
-    this.audio.setEngines(1); this.music('brazil');
+    this.audio.setEngines(1); this.music(this.raceSong());
     const H = this.hud, e = (cls: string, html = '') => h('div.' + cls, { html });
     const tall = this.track.open; this.mapW = tall ? 250 : 380; this.mapH = tall ? 640 : 380;
     const mapCv = h<'canvas'>('canvas.map', { width: this.mapW, height: this.mapH, style: tall ? { width: '110px', height: '282px' } : {} }); this.map = mapCv.getContext('2d')!;
@@ -411,7 +420,7 @@ export class App {
       h('table', null, h('tr', null, h('th', null, '#'), h('th', null, 'Piloto'), h('th', null, ev.laps > 1 && !r.track.open ? 'Melhor volta' : 'Tempo'), h('th', null, 'Total')),
         ...order.map((q) => h('tr' + (q === me ? '.me' : ''), null, h('td', null, String(q.place)), h('td', null, q.name), h('td', null, clock(q.best)), h('td', null, q.finished ? clock(q.finishTick) : '—')))),
       h('p', { html: `Prêmio <b style="color:var(--acc2)">${money(got.money)}</b> · Reputação <b style="color:var(--acc2)">+${got.rep}</b>${got.improved ? '' : ' <small>(repetição paga menos)</small>'}` }),
-      ev.kind === 'rival' && place === 1 ? h('p', { style: { color: 'var(--ok)' } }, 'Você é o novo dono da orla. As próximas cidades do World Tour chegam na fase 2.') : null,
+      ev.kind === 'rival' && place === 1 ? h('p', { style: { color: 'var(--ok)' } }, (ev.city === 'rio' ? 'Você é o novo dono da orla. ' : '') + 'Você venceu o dono da região. O World Tour continua: novas cidades chegam em breve.') : null,
       h('div', { style: { display: 'flex', gap: '8px' } }, h('button.pri', { onclick: () => this.mapScreen(CITIES.find((x) => x.id === ev.city) ?? CITIES[0]) }, 'Continuar'), h('button', { onclick: () => this.startEvent(ev) }, 'Repetir'), h('button', { onclick: () => this.garage() }, 'Garagem'))));
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE, RIO, COAST, COAST_BRIDGE, FINISH_BEFORE_END, TRACKS, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, CITIES, cityOpen, pointAt, medal, type Driver, type Parts, type WeatherKind, WEATHER, pickWeather, allowedWeather } from '../src/index';
+import { BASE, RIO, COAST, COAST_BRIDGE, ROCKIES, PATAGONIA, ROCKIES_BRIDGE, ROCKIES_GALLERY, ROCKIES_OVERPASS, PATAGONIA_BRIDGE, cityDone, FINISH_BEFORE_END, TRACKS, buildSpec, buildTrack, createRace, makeCar, noInput, noParts, stepCar, stepRace, locate, heightAt, ratings, dyno, newCareer, buyPart, settle, EVENTS, CITIES, cityOpen, pointAt, medal, type Driver, type Parts, type TrackDef, type WeatherKind, WEATHER, pickWeather, allowedWeather } from '../src/index';
 
 const track = buildTrack(RIO);
 const ace: Driver = { name: 'ace', skill: 0.97, aggression: 0.5, consistency: 1 };
@@ -116,6 +116,83 @@ describe('coast (point to point)', () => {
   });
 });
 
+const regionTests = (name: string, def: TrackDef, o: { len: [number, number]; y: [number, number]; flats: { from: number; to: number }[]; trial: string; run: string; minWeather: WeatherKind[]; hw: number }) => describe(name, () => {
+  const tr = buildTrack(def);
+  const solo = (w?: WeatherKind) => {
+    const r = createRace(tr, [{ spec: BASE, driver: ace, name: 'a', paint: 0 }], 1, 3, 0, w), c = r.racers[0].car;
+    let hits = 0, maxIdx = 0;
+    for (let k = 0; k < 60 * 500 && !(r.racers[0].finished && Math.hypot(c.vx, c.vy) < 0.2); k++) { stepRace(r, [null]); if (c.hit > 1) hits++; maxIdx = Math.max(maxIdx, c.loc.idx + c.loc.frac); }
+    return { r, hits, maxIdx, c };
+  };
+  it('has the expected length, corners, clearance, heights and flat bridge spans', () => {
+    expect(tr.open).toBe(true); expect(TRACKS[def.id]).toBe(def); expect(def.halfWidth).toBe(o.hw);
+    expect(tr.len).toBeGreaterThan(o.len[0]); expect(tr.len).toBeLessThan(o.len[1]);
+    let maxK = 0, maxG = 0; for (let i = 0; i < tr.n; i++) { maxK = Math.max(maxK, Math.abs(tr.curv[i])); maxG = Math.max(maxG, Math.abs(tr.slope[i])); }
+    expect(1 / maxK).toBeGreaterThan(25); expect(maxG).toBeLessThan(0.12);
+    const skip = Math.ceil(120 / tr.step); let min = Infinity;
+    for (let i = 0; i < tr.n; i++) for (let j = i + skip; j < tr.n; j++) min = Math.min(min, Math.hypot(tr.px[i] - tr.px[j], tr.pz[i] - tr.pz[j]));
+    expect(min).toBeGreaterThan(55);
+    expect(Math.min(...tr.py)).toBeGreaterThan(o.y[0]); expect(Math.max(...tr.py)).toBeLessThan(o.y[1]);
+    for (const f of o.flats) {
+      expect(f.to - f.from).toBeGreaterThan(140); expect(f.to).toBeLessThan(tr.len - 400);
+      const h0 = pointAt(tr, f.from, 0)[1]; for (let s = f.from; s <= f.to; s += 10) expect(Math.abs(pointAt(tr, s, 0)[1] - h0)).toBeLessThan(1);
+    }
+    // a straight, near-flat finish run
+    const h = pointAt(tr, tr.len - 400, 0)[1]; for (let s = tr.len - 400; s <= tr.len; s += 10) { const p = pointAt(tr, s, 0); expect(Math.abs(p[1] - h)).toBeLessThan(2); expect(Math.abs(Math.cos(p[3] - pointAt(tr, tr.len, 0)[3]))).toBeGreaterThan(0.99); }
+  });
+  it('solo ace AI drives start to finish without hitting walls and the trial medals match', () => {
+    const { r, hits, maxIdx, c } = solo(), q = r.racers[0];
+    console.log(def.id, 'solo ace time', (q.finishTick / 60).toFixed(2), 'len', tr.len.toFixed(0), 'hits', hits);
+    expect(q.finished).toBe(true); expect(hits).toBe(0);
+    const ev = EVENTS.find((e) => e.id === o.trial)!;
+    expect(medal(ev, q.finishTick)).toBe(1); expect(medal(ev, Math.round(q.finishTick * 1.04))).toBe(2); expect(medal(ev, Math.round(q.finishTick * 1.1))).toBe(3); expect(medal(ev, Math.round(q.finishTick * 1.2))).toBe(4);
+    expect(maxIdx * tr.step).toBeLessThan(tr.len - 1); expect(Math.hypot(c.vx, c.vy)).toBeLessThan(0.3);
+  });
+  it('solo ace finishes cleanly in hard weather', () => {
+    for (const w of o.minWeather) { const { r, hits } = solo(w); console.log(def.id, w, (r.racers[0].finishTick / 60).toFixed(2), 'hits', hits); expect(r.racers[0].finished).toBe(true); expect(hits).toBe(0); }
+  });
+  it('a full grid finishes with places 1..8 and is deterministic', () => {
+    const ev = EVENTS.find((e) => e.id === o.run)!;
+    const run = () => {
+      const r = createRace(tr, [{ spec: BASE, driver: ace, name: 'p', paint: 0 }, ...ev.rivals.map((x, i) => ({ spec: BASE, driver: x.driver, name: x.driver.name, paint: i }))], 1, 9, 0);
+      for (let k = 0; k < 60 * 500 && !r.racers.every((q) => q.finished); k++) stepRace(r, r.racers.map(() => null));
+      return r;
+    };
+    const r = run();
+    expect(r.racers.length).toBe(8); expect(r.racers.every((q) => q.finished)).toBe(true);
+    expect(r.racers.map((q) => q.place).sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const snap = (x: typeof r) => x.racers.map((q) => [q.car.x, q.car.z, q.car.vx, q.dist, q.finishTick]);
+    expect(snap(run())).toEqual(snap(r));
+  });
+});
+
+regionTests('rockies (Icefields Parkway)', ROCKIES, { len: [6000, 8000], y: [30, 310], flats: [ROCKIES_BRIDGE], trial: 'rockies-trial', run: 'rockies-run', minWeather: ['snow', 'fog'], hw: 6.5 });
+regionTests('patagonia (Ruta del Fin del Mundo)', PATAGONIA, { len: [6000, 8000], y: [30, 230], flats: [PATAGONIA_BRIDGE], trial: 'pata-trial', run: 'pata-run', minWeather: ['storm'], hw: 6.5 });
+
+describe('region extras', () => {
+  const rk = buildTrack(ROCKIES);
+  it('rockies props sit on the road in order', () => {
+    expect(ROCKIES.shoulder).toBe(2.5); expect(PATAGONIA.shoulder).toBe(3);
+    expect(ROCKIES_OVERPASS.to).toBeLessThan(ROCKIES_GALLERY.from); expect(ROCKIES_GALLERY.to - ROCKIES_GALLERY.from).toBeGreaterThanOrEqual(180);
+    expect(ROCKIES_GALLERY.to).toBeLessThan(ROCKIES_BRIDGE.from); expect(ROCKIES_BRIDGE.to).toBeLessThan(rk.len);
+    expect(ROCKIES_BRIDGE.to - ROCKIES_BRIDGE.from).toBeGreaterThanOrEqual(200); expect(PATAGONIA_BRIDGE.to - PATAGONIA_BRIDGE.from).toBeGreaterThanOrEqual(150);
+  });
+  it('banff opens at rep 90; patagonia needs rep 170 and the Rio rival; london unchanged', () => {
+    const c = newCareer(), banff = CITIES.find((x) => x.id === 'banff')!, pat = CITIES.find((x) => x.id === 'patagonia')!, london = CITIES.find((x) => x.id === 'london')!;
+    c.rep = 89; expect(cityOpen(c, banff)).toBe(false); c.rep = 90; expect(cityOpen(c, banff)).toBe(true);
+    c.rep = 170; expect(cityOpen(c, pat)).toBe(false); c.results['rio-rival'] = { place: 2, best: 0 }; expect(cityOpen(c, pat)).toBe(false);
+    c.results['rio-rival'] = { place: 1, best: 0 }; expect(cityOpen(c, pat)).toBe(true);
+    c.rep = 1000; expect(cityOpen(c, london)).toBe(false);
+    expect(CITIES.findIndex((x) => x.id === 'banff')).toBeGreaterThan(CITIES.findIndex((x) => x.id === 'bigsur'));
+  });
+  it('cityDone follows the rival event, or every event won', () => {
+    const c = newCareer(), rio = CITIES.find((x) => x.id === 'rio')!, big = CITIES.find((x) => x.id === 'bigsur')!, pat = CITIES.find((x) => x.id === 'patagonia')!;
+    expect(cityDone(c, rio)).toBe(false); c.results['rio-rival'] = { place: 1, best: 0 }; expect(cityDone(c, rio)).toBe(true);
+    c.results['coast-run'] = { place: 1, best: 0 }; expect(cityDone(c, big)).toBe(false); c.results['coast-trial'] = { place: 1, best: 0 }; expect(cityDone(c, big)).toBe(true);
+    c.results['pata-rival'] = { place: 2, best: 0 }; expect(cityDone(c, pat)).toBe(false); c.results['pata-rival'] = { place: 1, best: 0 }; expect(cityDone(c, pat)).toBe(true);
+  });
+});
+
 describe('career', () => {
   it('buys parts and banks prizes', () => {
     const c = newCareer(); expect(buyPart(c, 'engine')).toBe(false);
@@ -144,12 +221,13 @@ describe('weather', () => {
     expect(res.rain.r.grip).toBe(WEATHER.rain.grip); expect(res.rain.r.weather).toBe('rain');
   });
   it('pickWeather respects each track list and is deterministic', () => {
-    for (const def of [RIO, COAST]) {
+    for (const def of [RIO, COAST, ROCKIES, PATAGONIA]) {
       const allowed = allowedWeather(def), seen = new Set<string>();
       for (let s = 0; s < 500; s++) { const w = pickWeather(def, s); expect(allowed).toContain(w); expect(pickWeather(def, s)).toBe(w); seen.add(w); }
       expect(seen.size).toBe(allowed.length);
-      expect(allowed).not.toContain('snow');
+      if (def === ROCKIES) expect(allowed).toContain('snow'); else expect(allowed).not.toContain('snow');
     }
+    expect(allowedWeather(ROCKIES)).not.toContain('storm'); expect(allowedWeather(PATAGONIA)).toContain('storm');
     expect(allowedWeather(COAST)).not.toContain('storm');
   });
   it('is deterministic with weather', () => {

@@ -5,11 +5,19 @@ All files in this folder come from [Poly Haven](https://polyhaven.com) and are l
 | File | Asset | Author |
 |---|---|---|
 | kloppenheim_06_puresky_4k.hdr | [Kloppenheim 06 (Pure Sky)](https://polyhaven.com/a/kloppenheim_06_puresky) | Greg Zaal, Jarod Guest |
+| kloofendal_43d_clear_puresky_2k.hdr | [Kloofendal 43d Clear (Pure Sky)](https://polyhaven.com/a/kloofendal_43d_clear_puresky) | Greg Zaal |
+| kloofendal_48d_partly_cloudy_puresky_2k.hdr | [Kloofendal 48d Partly Cloudy (Pure Sky)](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) | Greg Zaal, Jarod Guest |
 | asphalt_04_*.jpg | [Asphalt 04](https://polyhaven.com/a/asphalt_04) | Jenelle van Heerden, Sergej Majboroda |
 | aerial_grass_rock_*.jpg | [Aerial Grass Rock](https://polyhaven.com/a/aerial_grass_rock) | Rob Tuytel |
 | aerial_beach_01_*.jpg | [Aerial Beach 01](https://polyhaven.com/a/aerial_beach_01) | Rob Tuytel |
 | rock_face_03_*.jpg | [Rock Face 03](https://polyhaven.com/a/rock_face_03) | Dario Barresi, Rico Cilliers |
 | concrete_wall_008_*.jpg | [Concrete Wall 008](https://polyhaven.com/a/concrete_wall_008) | Dario Barresi, Charlotte Baglioni |
+| snow_02_*.jpg | [Snow 02](https://polyhaven.com/a/snow_02) | Rob Tuytel |
+| forrest_ground_01_*.jpg | [Forest Ground 01](https://polyhaven.com/a/forrest_ground_01) | Rob Tuytel |
+| aerial_rocks_02_*.jpg | [Aerial Rocks 02](https://polyhaven.com/a/aerial_rocks_02) | Rob Tuytel |
+| dry_ground_rocks_*.jpg | [Dry Ground Rocks](https://polyhaven.com/a/dry_ground_rocks) | Rob Tuytel |
+| gravel_ground_01_*.jpg | [Gravel Ground 01](https://polyhaven.com/a/gravel_ground_01) | Rob Tuytel |
+| coast_sand_rocks_02_*.jpg | [Coast Sand Rocks 02](https://polyhaven.com/a/coast_sand_rocks_02) | Rob Tuytel |
 
 ## Car models
 

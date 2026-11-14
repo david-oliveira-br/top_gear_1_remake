@@ -23,7 +23,7 @@ export class Session {
 
   constructor(private eng: Engine, private world: World, track: Track, entrants: Entrant[], laps: number, looks: Look[], playerIndex: number, seed = 1, rubber = 0.5, public weather: WeatherKind = 'clear') {
     this.race = createRace(track, entrants, laps, seed, rubber, weather); this.player = playerIndex;
-    if (WEATHER[weather].wet > 0.3) { this.spray = new Spray(entrants.length); this.spray.setLight(Math.min(1, 0.4 + (LOOK[weather].sky?.[0][0] ?? 0.6))); eng.overlay.add(this.spray.mesh); }
+    if (WEATHER[weather].wet > 0.3 || weather === 'snow') { this.spray = new Spray(entrants.length); this.spray.setLight(weather === 'snow' ? 1 : Math.min(1, 0.4 + (LOOK[weather].sky?.[0][0] ?? 0.6))); eng.overlay.add(this.spray.mesh); }
     this.race.racers.forEach((r, i) => { const v = new CarVisual(looks[i].kind ?? 0, i === playerIndex); v.setLook(looks[i]); eng.scene.add(v.group); this.visuals.push(v); this.prev.push([r.car.x, r.car.y, r.car.z, r.car.yaw]); });
   }
   private spray: Spray | null = null;

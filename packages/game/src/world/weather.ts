@@ -7,6 +7,8 @@ export const wetU = uniform(0);
 /** particles must not write motion vectors (their animated positions would smear the speed blur) */
 const noVel = () => mrt({ velocity: vec4(0, 0, 0, 0) });
 export const snowU = uniform(0);
+/** wind (x, z) in m/s; rain slants and snow drifts with it. The default is the original slant. */
+export const windU = uniform(new THREE.Vector2(2.4, 1.2));
 /** 0..1 lightning flash */
 export const flashU = uniform(0);
 
@@ -25,6 +27,19 @@ export function wetRoad(color: any, rough: any, onRoad: any, keep: any, l: any, 
   const col = color.mul(mix(float(1), float(0.5), w.mul(float(1).sub(keep.mul(0.55)))));
   const r = mix(rough, mix(float(0.32), float(0.035), p), w.mul(1.5).min(1));
   return { color: col, rough: r, flat: p.mul(w).mul(0.9) };
+}
+/**
+ * Packed snow on the road, driven by snowU: pale blue-white surface with two darker, wetter tyre tracks per lane (wheel paths) that wander and break up;
+ * paint (`keep`) shows through a little. l = lateral, s = along, hw = road half width. Returns colour, roughness and `cover` (0..1, use it to flatten the normal map).
+ */
+export function snowRoad(color: any, rough: any, onRoad: any, keep: any, l: any, s: any, hw = 6.5) {
+  const lane = float(hw * 0.5), al = abs(l), sw = mx_noise_float(vec3(s.mul(0.05), 0, 3.1)).mul(0.35); // wander of the tracks along the road
+  const track = (c: any) => smoothstep(0.55, 0.15, abs(al.sub(c).add(sw)));
+  const tracks = max(track(lane.sub(0.8)), track(lane.add(0.8))).mul(mx_noise_float(vec3(l.mul(1.3), s.mul(0.35), 5.7)).mul(0.5).add(0.62).min(1));
+  const grain = mx_noise_float(vec3(l.mul(2.5), s.mul(2.5), 9.1)).mul(0.04).add(0.94);
+  const snowCol = vec3(0.86, 0.9, 0.96).mul(grain), trackCol = vec3(0.24, 0.26, 0.29).mul(grain.mul(1.3));
+  const surf = mix(snowCol, trackCol, tracks.mul(0.85)), cover = snowU.mul(onRoad).mul(float(1).sub(keep.mul(0.5)));
+  return { color: mix(color, surf, cover), rough: mix(rough, mix(float(0.78), float(0.38), tracks), cover), cover };
 }
 /** Snow covers verges and land (not the road): whitens upward-facing ground; wet darkens and smooths it a little. */
 export function weatherGround(color: any, rough: any, up: any, cover: any = float(1)) {
@@ -75,7 +90,7 @@ export class Precip {
 
     // ---- rain: thin streaks along the apparent velocity (fall + wind - camera motion) ----
     {
-      const size = vec3(36, 22, 36), fall = float(17).mul(rnd(4).mul(0.3).add(0.85)), vel = vec3(float(2.4), fall.negate(), float(1.2)); // wind slant
+      const size = vec3(36, 22, 36), fall = float(17).mul(rnd(4).mul(0.3).add(0.85)), vel = vec3(windU.x, fall.negate(), windU.y); // wind slant
       const rel = mod(vec3(rnd(1), rnd(2), rnd(3)).mul(size).add(vel.mul(time)).sub(this.ctr), size).sub(size.mul(0.5));
       const centre = this.ctr.add(rel), va = vel.sub(this.camV), a = normalize(va), view = normalize(centre.sub(this.camP)), side = normalize(cross(a, view));
       const len = float(0.5).add(length(va).mul(0.016)).mul(rnd(5).mul(0.6).add(0.7)), w = float(0.014).mul(rnd(6).mul(0.8).add(0.6));
@@ -88,7 +103,7 @@ export class Precip {
     }
     // ---- snow: round flakes drifting slowly with a sway ----
     {
-      const size = vec3(30, 18, 30), fall = float(1.5).mul(rnd(4).mul(0.6).add(0.7)), vel = vec3(float(0.6), fall.negate(), float(0.3));
+      const size = vec3(30, 18, 30), fall = float(1.5).mul(rnd(4).mul(0.6).add(0.7)), vel = vec3(windU.x.mul(0.25), fall.negate(), windU.y.mul(0.25));
       const rel = mod(vec3(rnd(1), rnd(2), rnd(3)).mul(size).add(vel.mul(time)).sub(this.ctr), size).sub(size.mul(0.5));
       const sway = vec3(sin(time.mul(0.7).add(rnd(5).mul(6.28))), sin(time.mul(0.9).add(rnd(6).mul(6.28))).mul(0.3), sin(time.mul(0.6).add(rnd(7).mul(6.28)))).mul(0.5);
       const centre = this.ctr.add(rel).add(sway), dist = length(centre.sub(this.camP)), edge = max(max(abs(rel.x).div(size.x), abs(rel.y).div(size.y)), abs(rel.z).div(size.z));
@@ -102,6 +117,7 @@ export class Precip {
     this.group.add(this.rain, this.snow); this.group.visible = false;
   }
 
+  dispose() { this.group.removeFromParent(); for (const m of [this.rain, this.snow]) (m.material as THREE.Material).dispose(); this.rainGeo.dispose(); this.snowGeo.dispose(); }
   /** rain: 0 none, 1 rain, 2 storm; snow: 0/1. `light` dims the colour with the sky. */
   set(rain: number, snow: number, light: number) {
     const d = this.detail;
