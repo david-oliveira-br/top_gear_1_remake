@@ -214,7 +214,7 @@ export class CarVisual {
   /** Pose from the simulation. Angles in radians; `gradF`/`gradR` are the road gradient along the car and to its right. */
   place(x: number, y: number, z: number, yaw: number, o: { speed: number; steer: number; /** steer / steerLimit, -1..1 */ steerN?: number; ax: number; ay: number; gradF: number; gradR: number; brake: number; dt: number; lamps?: number }) {
     const g = this.group, k = Math.min(1, o.dt * 9);
-    this.pitch += (-o.ax * 0.0042 - this.pitch) * k; this.roll += (o.ay * 0.0045 - this.roll) * k;
+    this.pitch += (-o.ax * 0.0042 - this.pitch) * k; this.roll += (-o.ay * 0.0045 - this.roll) * k;
     this.heave += ((Math.abs(o.ax) + Math.abs(o.ay)) * -0.0012 - this.heave) * k;
     g.position.set(x, y, z); g.rotation.set(-Math.atan(o.gradF), Math.PI / 2 - yaw, -Math.atan(o.gradR));
     this.body.rotation.set(this.pitch, 0, this.roll); this.body.position.y = this.baseY + this.heave;
