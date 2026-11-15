@@ -1,46 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as sim from '../src/index';
-import { BASE, CARS, buildTrack, makeCar, noInput, stepCar, RIO, steerLimit, type CarSpec } from '../src/index';
+import { ARCADE, BASE, CARS, SIM, noInput, stepCar, steerLimit } from '../src/index';
+import { G, flat, fresh, cruise, steady, skidpad, stepSteer, kmh, keyTap, keyHold, handbrake, brakeInTurn, powerOn, lockShare, understeerGradient, arcadeRamp, type Steady } from './handling-metrics';
 
-/** A flat, endlessly wide track so a car can circle without meeting barriers or slopes. */
-const rio = buildTrack(RIO);
-const flat = { ...rio, hw: new Float64Array(rio.n).fill(1e6), slope: new Float64Array(rio.n), bank: new Float64Array(rio.n) } as typeof rio;
-const G = 9.81;
-
-function fresh(spec: CarSpec, v: number) {
-  const c = makeCar(0, spec); c.x = rio.px[10]; c.z = rio.pz[10]; c.yaw = 0; c.vx = v; c.gear = Math.max(1, spec.gears.length - 1);
-  // pick the gear whose wheel speed fits
-  for (let g = 1; g <= spec.gears.length; g++) { c.gear = g; if ((v / spec.wheelR) * spec.gears[g - 1] * spec.final * (30 / Math.PI) < spec.redline * 0.85) break; }
-  c.rpm = spec.idle + 2000; return c;
-}
-/** simple cruise: hold speed with throttle / brake */
-function cruise(c: ReturnType<typeof makeCar>, v: number, inp = noInput()) {
-  const e = v - Math.hypot(c.vx, c.vy);
-  inp.throttle = Math.max(0, Math.min(1, 0.3 + e * 0.5)); inp.brake = e < -1 ? Math.min(0.5, -e * 0.1) : 0; return inp;
-}
-export interface Steady { ay: number; delta: number; beta: number; spun: boolean; wz: number; vEnd: number }
-/** Hold speed `v` and steer `steerN` (-1..1 of the steering limit) until steady; report lateral acceleration and balance. */
-export function steady(spec: CarSpec, v: number, steerN: number, secs = 5): Steady {
-  const c = fresh(spec, v), inp = noInput(); let ay = 0, delta = 0, beta = 0, wz = 0, n = 0, maxBeta = 0;
-  for (let k = 0; k < 60 * secs; k++) {
-    cruise(c, v, inp); inp.steer = steerN; stepCar(c, inp, flat, false);
-    const b = Math.abs(Math.atan2(c.vy, Math.max(1, Math.abs(c.vx)))); maxBeta = Math.max(maxBeta, b);
-    if (k >= 60 * (secs - 1.5)) { ay += Math.hypot(c.vx, c.vy) * c.wz; delta += c.steer; beta += Math.atan2(c.vy, Math.max(1, c.vx)); wz += c.wz; n++; }
-  }
-  return { ay: Math.abs(ay / n), delta: Math.abs(delta / n), beta: Math.abs(beta / n), spun: maxBeta > 0.5, wz: Math.abs(wz / n), vEnd: Math.hypot(c.vx, c.vy) };
-}
-/** Full lock at speed v: peak steady lateral acceleration (m/s2) and slip angle. */
-export const skidpad = (spec: CarSpec, v: number) => steady(spec, v, 1);
-/** Step the steering to full and time the yaw response. */
-export function stepSteer(spec: CarSpec, v: number, steerN = 0.6) {
-  const c = fresh(spec, v), inp = noInput();
-  for (let k = 0; k < 60; k++) { cruise(c, v, inp); stepCar(c, inp, flat, false); }
-  const wzs: number[] = []; let maxBeta = 0;
-  for (let k = 0; k < 60 * 3; k++) { cruise(c, v, inp); inp.steer = steerN; stepCar(c, inp, flat, false); wzs.push(Math.abs(c.wz)); maxBeta = Math.max(maxBeta, Math.abs(Math.atan2(c.vy, Math.max(1, c.vx)))); }
-  const fin = wzs[wzs.length - 1], t90 = wzs.findIndex((w) => w >= 0.9 * fin) / 60;
-  return { t90, wz: fin, maxBeta, overshoot: Math.max(...wzs) / fin };
-}
-const kmh = (x: number) => x / 3.6;
 
 const cars = CARS.map((c) => c.spec);
 describe('steering and slip', () => {
@@ -87,5 +49,64 @@ describe('steering and slip', () => {
   });
   it('steerNorm is steer over the limit', () => {
     expect(sim.steerNorm(BASE, 30, 1, steerLimit(BASE, 30, 1) * 0.5)).toBeCloseTo(0.5, 9);
+  });
+});
+
+/** Arcade (NFS4-style) preset: every car, 60/100/180 km/h, with the Arcade keyboard ramp. */
+describe('arcade handling', () => {
+  const h = ARCADE, speeds = [60, 100, 180];
+  it('makeCar defaults to the SIM preset', () => { expect(fresh(CARS[0].spec, 10).h).toBe(SIM); });
+  it('skidpad reaches the tyre limit, grips at full lock and never spins', () => {
+    for (const c of CARS) for (const k of speeds) {
+      const r = skidpad(c.spec, kmh(k), h); expect(r.ay / G, `${c.id} ${k}`).toBeGreaterThan(0.95 * c.spec.mu * (1 - Math.abs(c.spec.balance ?? 0) * 0.5));
+      expect(r.beta, `${c.id} ${k}`).toBeLessThan(0.12); expect(r.spun).toBe(false);
+    }
+  });
+  it('understeer is mild and progressive', () => {
+    for (const c of CARS) {
+      const v = kmh(100), ug = understeerGradient(c.spec, v, h); expect(ug, c.id).toBeGreaterThan(0.8); expect(ug, c.id).toBeLessThan(3.0);
+      for (const k of speeds) {
+        const l25 = lockShare(c.spec, kmh(k), 0.25, h), l50 = lockShare(c.spec, kmh(k), 0.5, h);
+        expect(l25, `${c.id} ${k} 25%`).toBeGreaterThan(0.3); expect(l25, `${c.id} ${k} 25%`).toBeLessThan(0.6);
+        expect(l50, `${c.id} ${k} 50%`).toBeGreaterThan(0.6); expect(l50, `${c.id} ${k} 50%`).toBeLessThan(0.92);
+      }
+    }
+  });
+  it('turns in crisply without overshoot', () => {
+    for (const c of CARS) for (const k of speeds) {
+      const st = stepSteer(c.spec, kmh(k), 1, h);
+      expect(st.t90, `${c.id} ${k}`).toBeLessThan(0.45); expect(st.overshoot, `${c.id} ${k} raw`).toBeLessThan(1.5); expect(st.maxBeta, `${c.id} ${k}`).toBeLessThan(0.3);
+      expect(keyHold(c.spec, kmh(k), h, arcadeRamp).overshoot, `${c.id} ${k} key`).toBeLessThan(1.35);
+    }
+  });
+  it('a 0.25 s tap at 180 km/h turns the car 5 degrees at most', () => {
+    for (const c of CARS) expect(keyTap(c.spec, kmh(180), 0.25, h, arcadeRamp), c.id).toBeLessThan(5);
+  });
+  it('braking or powering at full lock stays catchable', () => {
+    for (const c of CARS) for (const k of speeds) {
+      expect(brakeInTurn(c.spec, kmh(k), h), `${c.id} ${k} brake`).toBeLessThan(25); expect(powerOn(c.spec, kmh(k), h), `${c.id} ${k} power`).toBeLessThan(14);
+    }
+  });
+  it('handbrake gives a 30-50 degree drift, never more, and straightens on release', () => {
+    for (const c of CARS) for (const k of speeds) {
+      const a = handbrake(c.spec, kmh(k), 0.7, h), b = handbrake(c.spec, kmh(k), 2, h);
+      expect(a.peak, `${c.id} ${k} 0.7s`).toBeGreaterThan(25); expect(a.peak, `${c.id} ${k} 0.7s`).toBeLessThan(50);
+      expect(b.peak, `${c.id} ${k} 2s`).toBeGreaterThan(30); expect(b.peak, `${c.id} ${k} 2s`).toBeLessThan(50);
+      expect(a.recover, `${c.id} ${k} recover`).toBeLessThan(0.8);
+    }
+  });
+  it('the handbrake with full lock kept after release still does not spin out', () => {
+    for (const c of CARS) for (const k of speeds) expect(handbrake(c.spec, kmh(k), 0.7, h, true).recover, `${c.id} ${k}`).toBeLessThan(5);
+  });
+  it('rain and snow: full lock does not spin', () => {
+    for (const c of CARS) for (const [name, grip] of [['rain', 0.82], ['snow', 0.6]] as const) for (const k of speeds) {
+      const car = fresh(c.spec, kmh(k), h), inp = noInput(); car.grip = grip; let maxBeta = 0;
+      for (let i = 0; i < 60 * 5; i++) { cruise(car, kmh(k), inp); inp.steer = 1; stepCar(car, inp, flat, false); maxBeta = Math.max(maxBeta, Math.abs(Math.atan2(car.vy, Math.max(1, Math.abs(car.vx))))); }
+      expect(maxBeta, `${c.id} ${name} ${k}`).toBeLessThan(0.5);
+    }
+  });
+  it('drift state is 1 while the handbrake is held and decays over 0.6 s', () => {
+    const car = fresh(CARS[0].spec, kmh(100), h), inp = noInput(); inp.handbrake = true; stepCar(car, inp, flat, false); expect(car.drift).toBe(1);
+    inp.handbrake = false; for (let i = 0; i < 40; i++) stepCar(car, inp, flat, false); expect(car.drift).toBe(0);
   });
 });

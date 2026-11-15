@@ -1,6 +1,6 @@
 import { MAX_LEVEL, PART_IDS, defaultTuning, isCarId, newCareer, newSetup, noParts, type Career, type CarSetup } from '../../sim/src/index';
 
-export interface Settings { quality: string; auto: boolean; cam: 'chase' | 'far' | 'bumper' | 'hood' | 'cockpit'; radioOn: boolean; }
+export interface Settings { quality: string; auto: boolean; cam: 'chase' | 'far' | 'bumper' | 'hood' | 'cockpit'; radioOn: boolean; handling: 'arcade' | 'sim'; }
 const KEY = 'rh_career', SKEY = 'rh_settings';
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 function cleanSetup(raw: any): CarSetup {
@@ -27,5 +27,6 @@ export function migrateCareer(raw: any): Career {
 }
 export function loadCareer(): Career { try { return migrateCareer(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch { /* fresh start */ } return newCareer(); }
 export function saveCareer(c: Career) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* storage full: drop ghosts and retry */ c.ghost = {}; try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* give up */ } } }
-export function loadSettings(): Settings { let s: Partial<Settings> = {}; try { s = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { /* defaults */ } return { quality: 'high', auto: true, cam: 'chase', radioOn: true, ...s }; }
+export function cleanSettings(raw: any): Settings { const s = { quality: 'high', auto: true, cam: 'chase', radioOn: true, handling: 'arcade', ...(raw && typeof raw === 'object' ? raw : {}) } as Settings; if (s.handling !== 'arcade' && s.handling !== 'sim') s.handling = 'arcade'; return s; }
+export function loadSettings(): Settings { let s: Partial<Settings> = {}; try { s = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { /* defaults */ } return cleanSettings(s); }
 export const saveSettings = (s: Settings) => localStorage.setItem(SKEY, JSON.stringify(s));

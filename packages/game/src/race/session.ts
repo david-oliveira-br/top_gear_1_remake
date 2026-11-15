@@ -14,7 +14,7 @@ export interface Look { kind?: number; paint: number; finish?: number; wheels?: 
 /** One running race: steps the simulation at 60 Hz and poses cars and camera every frame. */
 export class Session {
   race: Race; visuals: CarVisual[] = []; player = 0; cam: CamMode = 'chase'; orbit = 0; time = 0; ghost: number[] = []; ghostCar: CarVisual | null = null;
-  private acc = 0; private prev: number[][] = []; private camPos = new THREE.Vector3(); private camYaw = 0; private first = true; private fov = 62; private shake = 0;
+  private acc = 0; private prev: number[][] = []; private camPos = new THREE.Vector3(); private camYaw = 0; private first = true; private betaS = 0; private lead = 0; private fov = 62; private shake = 0;
   /** true while the look-back button is held; `lb` is the eased 0..1 turn */
   lookBack = false; private lb = 0; private sx = 0; private sz = 0; private cockpitOn = false; private near = 0.3;
   private input: Input = noInput(); private tmp = new THREE.Vector3(); private look = new THREE.Vector3(); private tmp2 = new THREE.Vector3(); private cp = new THREE.Vector3(); private up = new THREE.Vector3(0, 1, 0);
@@ -56,7 +56,7 @@ export class Session {
       const c = q.car, p = this.prev[i]; let dy = c.yaw - p[3]; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       const ct = Math.cos(c.yaw), st = Math.sin(c.yaw), k = c.loc.idx, rel = ct * t.tx[k] + st * t.tz[k], relS = -st * t.tx[k] + ct * t.tz[k];
       this.visuals[i].place(p[0] + (c.x - p[0]) * a, p[1] + (c.y - p[1]) * a, p[2] + (c.z - p[2]) * a, p[3] + dy * a, {
-        speed: c.vx, steer: c.steer, steerN: steerNorm(c.spec, c.vx, c.grip, c.steer), ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt, lamps: LOOK[this.weather].lamps });
+        speed: c.vx, steer: c.steer, steerN: steerNorm(c.spec, c.vx, c.grip, c.steer, c.h.margin), ax: c.ax, ay: c.ay, gradF: c.slopeS * rel - c.slopeL * relS, gradR: c.slopeS * relS + c.slopeL * rel, brake: c.brake > 0.05 && c.gear > 0 ? 1 : 0, dt, lamps: LOOK[this.weather].lamps });
       this.spray?.emit(i, dt, this.visuals[i].group.position.x, this.visuals[i].group.position.y, this.visuals[i].group.position.z, ct, st, c.vx);
     });
     if (this.ghostCar) {
@@ -74,6 +74,10 @@ export class Session {
     const jx = (Math.sin(this.time * 61) + Math.sin(this.time * 97)) * 0.012 * rough, jy = (Math.sin(this.time * 73) + Math.sin(this.time * 113)) * 0.012 * rough;
     const vis = this.visuals[this.player], f = this.tmp2.set(Math.cos(yaw), 0, Math.sin(yaw)), cp = this.cp;
     const ease = Math.min(1, dt * 4);
+    // visual-only smoothing: slide angle (0.2 s, off below 5 m/s) and a look-ahead into the turn (0.25 s)
+    const beta = sp > 5 ? Math.atan2(c.vy, sp) : 0, tl = Math.max(-0.22, Math.min(0.22, c.wz * 0.35));
+    if (this.first) { this.betaS = 0; this.lead = 0; }
+    else { this.betaS += (beta - this.betaS) * Math.min(1, dt / 0.2); this.lead += (tl - this.lead) * Math.min(1, dt / 0.25); }
     if (this.cam === 'orbit') {
       const d = 6.4; cp.set(v.position.x + Math.cos(this.orbit) * d, v.position.y + 1.25, v.position.z + Math.sin(this.orbit) * d); this.look.set(v.position.x, v.position.y + 0.65, v.position.z);
       this.fov = 38;
@@ -82,18 +86,18 @@ export class Session {
       // the head leans out of corners and back under acceleration
       this.sx += (Math.max(-0.07, Math.min(0.07, -c.ay * 0.0016)) - this.sx) * ease; this.sz += (Math.max(-0.05, Math.min(0.05, -c.ax * 0.0011)) - this.sz) * ease;
       vis.anchorWorld(this.cam === 'bumper' ? 'bumper' : this.cam === 'hood' ? 'hood' : 'head', cp, cockpit ? this.sx : 0, cockpit ? jy * 0.5 : jy, cockpit ? this.sz : 0);
-      this.look.copy(cp).addScaledVector(f, 30); this.look.y += c.slopeS * 30 - (cockpit ? 0.9 : this.cam === 'bumper' ? 0.2 : 1.7);
+      f.set(Math.cos(yaw + this.lead * 0.5), 0, Math.sin(yaw + this.lead * 0.5)); this.look.copy(cp).addScaledVector(f, 30); this.look.y += c.slopeS * 30 - (cockpit ? 0.9 : this.cam === 'bumper' ? 0.2 : 1.7);
       this.fov += ((cockpit ? 74 : this.cam === 'bumper' ? 72 : 68) + sp * 0.2 - this.fov) * Math.min(1, dt * 4);
     } else {
       const far = this.cam === 'far';
       // chase: the camera's heading trails the car's, which shows the slide in corners
-      let d = yaw - this.camYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      if (this.first) { this.camYaw = yaw; this.first = false; } else this.camYaw += d * Math.min(1, dt * (4.2 + sp * 0.03) * (far ? 0.7 : 1));
+      let d = yaw + this.betaS * 0.5 - this.camYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      if (this.first) { this.camYaw = yaw; this.first = false; } else this.camYaw += d * Math.min(1, dt * (5 + sp * 0.04));
       const back = (far ? 8.4 : 5.6) - Math.min(1.1, sp * 0.012) + (c.nitroOn ? 0.5 : 0), up = (far ? 3.0 : 1.95) - Math.min(0.35, sp * 0.004);
       this.tmp.set(v.position.x - Math.cos(this.camYaw) * back, v.position.y + up, v.position.z - Math.sin(this.camYaw) * back);
       const floor = this.world.heightAt(this.tmp.x, this.tmp.z) + 0.6; if (this.tmp.y < floor) this.tmp.y = floor;
       this.camPos.copy(this.tmp); cp.set(this.camPos.x + jx, this.camPos.y + jy, this.camPos.z);
-      this.look.set(v.position.x + Math.cos(yaw) * (far ? 6 : 4.5), v.position.y + (far ? 1.2 : 1.05), v.position.z + Math.sin(yaw) * (far ? 6 : 4.5));
+      const ld = (far ? 1.5 : 0) + 6 + sp * 0.08, ly = yaw + this.lead; this.look.set(v.position.x + Math.cos(ly) * ld, v.position.y + (far ? 1.2 : 1.05), v.position.z + Math.sin(ly) * ld);
       this.fov += ((far ? 54 : 58) + Math.min(26, sp * 0.3) * (far ? 0.7 : 1) + (c.nitroOn ? 7 : 0) - this.fov) * Math.min(1, dt * 3);
     }
     // look back: swing to a rear camera just above and behind the tail, so the car's own wing and seats are not in the shot

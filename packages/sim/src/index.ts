@@ -6,3 +6,4 @@ export * from './race';
 export * from './career';
 export * from './weather';
 export * from './cars';
+export * from './handling';

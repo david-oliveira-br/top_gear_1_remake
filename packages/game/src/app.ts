@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { CARS, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityDone, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
-  WEATHER, allowedWeather, pickWeather, carById, carStats, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
+  ARCADE, SIM, WEATHER, allowedWeather, pickWeather, carById, carStats, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
 import { carKit, isHeavy, kindOf, preloadCars } from './car/glb';
@@ -265,6 +265,7 @@ export class App {
     info();
     this.ui.append(h('div.center.panel', null, h('h2', null, 'Opções'),
       row('Qualidade gráfica', h('select', { onchange: (e: Event) => { s.quality = (e.target as HTMLSelectElement).value; saveSettings(s); location.reload(); } }, ...QUALITIES.map((q) => h('option', { value: q.id, selected: q.id === this.eng.quality.id }, q.label)))),
+      row('Dirigibilidade', h('select', { onchange: (e: Event) => { s.handling = (e.target as HTMLSelectElement).value === 'sim' ? 'sim' : 'arcade'; saveSettings(s); } }, h('option', { value: 'arcade', selected: s.handling !== 'sim' }, 'Arcade (estilo NFS)'), h('option', { value: 'sim', selected: s.handling === 'sim' }, 'Simulação (realista)'))),
       row('Câmbio automático', h('input', { type: 'checkbox', checked: s.auto, onchange: (e: Event) => { s.auto = (e.target as HTMLInputElement).checked; saveSettings(s); } })),
       row('Música', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: a.musicVol, oninput: (e: Event) => { a.musicVol = +(e.target as HTMLInputElement).value; a.saveVol(); r.setVolume(a.musicVol); } })),
       row('Efeitos', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: a.sfxVol, oninput: (e: Event) => { a.sfxVol = +(e.target as HTMLInputElement).value; a.saveVol(); } })),
@@ -305,6 +306,9 @@ export class App {
     entrants.push({ spec: playerSpec(c), driver: auto ? { name: 'auto', skill: 0.95, aggression: 0.6, consistency: 1 } : null, name: 'Você', paint: setupOf(c).paint }); looks.push(this.look());
     const wx = this.chosenWeather(ev); this.world.setWeather(wx); this.world.onThunder = (d, p) => this.audio.thunder(d, p); this.weatherSound(wx);
     const s = (this.session = new Session(this.eng, this.world, this.track, entrants, ev.laps, looks, entrants.length - 1, (Date.now() & 0xffff) | 1, ev.kind === 'trial' ? 0 : 0.5, wx));
+    // player only: AI cars keep the default SIM handling. ?handling=arcade|sim overrides the setting (also with ?auto=1, for captures)
+    const qh = this.q.get('handling'), hm = qh === 'sim' || qh === 'arcade' ? qh : this.settings.handling;
+    if (!auto || qh === 'sim' || qh === 'arcade') s.me.car.h = hm === 'sim' ? SIM : ARCADE;
     s.me.car.auto = this.settings.auto; s.cam = this.settings.cam;
     const qc = this.q.get('cam') as CamMode | null; if (qc && CAM_CYCLE.includes(qc)) s.cam = qc; // capture helper: ?cam=chase|far|bumper|hood|cockpit
     if (ev.kind === 'trial' && c.ghost[ev.id]) s.setGhost(c.ghost[ev.id], { ...this.look(), paint: 4 }, 3);
@@ -428,7 +432,7 @@ export class App {
   private frame() {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
     const eng = this.eng, cam = eng.camera;
-    this.controls.read(dt, this.screen === 'race' ? Math.abs(this.session?.me.car.vx ?? 0) : 0); this.padMenu();
+    this.controls.read(dt, this.screen === 'race' ? Math.abs(this.session?.me.car.vx ?? 0) : 0, this.screen === 'race' && this.session?.me.car.h === ARCADE); this.padMenu();
     if (this.screen !== 'options' && this.controls.hit('KeyR')) this.cycleStation(1);
     if (this.screen === 'race' || (this.screen === 'results' && this.session)) {
       if (this.screen === 'race') this.raceFrame(dt); else { this.session!.cam = 'orbit'; this.session!.orbit += dt * 0.25; this.session!.update(dt, null); }
@@ -454,7 +458,7 @@ export class App {
         h('button.pri', { onclick: () => { this.settings.quality = 'low'; saveSettings(this.settings); location.reload(); } }, 'Usar qualidade baixa'), ' ', h('button', { onclick: (e: Event) => (e.target as HTMLElement).parentElement!.remove() }, 'Fechar'))); } else this.slow = 0;
     }
     if (this.frames === 4) (window as any).__ready = true;
-    (window as any).__info = { screen: this.screen, money: this.career.money, rep: this.career.rep, place: this.session?.me.place, lap: this.session?.me.lap, finished: this.session?.me.finished, track: this.curId, tris: this.eng.renderer.info.render.triangles, dist: Math.round(this.session?.me.dist ?? 0) };
+    (window as any).__info = { screen: this.screen, money: this.career.money, rep: this.career.rep, place: this.session?.me.place, lap: this.session?.me.lap, finished: this.session?.me.finished, track: this.curId, tris: this.eng.renderer.info.render.triangles, dist: Math.round(this.session?.me.dist ?? 0), handling: this.session ? (this.session.me.car.h === ARCADE ? 'arcade' : 'sim') : this.settings.handling };
     requestAnimationFrame(() => this.frame());
   }
 }

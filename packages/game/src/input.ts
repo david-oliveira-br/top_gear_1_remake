@@ -17,13 +17,19 @@ export class Controls {
   /** True once per gamepad button press. */
   padHit(i: number) { const p = this.pad, now = !!p?.buttons[i]?.pressed, was = this.padPrev[i]; this.padPrev[i] = now; return now && !was; }
   /** `speed` is the car's forward speed in m/s: the keyboard winds the wheel on more slowly the faster you go. */
-  read(dt: number, speed = 0): Input {
+  read(dt: number, speed = 0, arcade = false): Input {
     const o = this.out, pads = navigator.getGamepads ? navigator.getGamepads() : []; this.pad = null;
     for (const p of pads) if (p && p.connected && p.mapping === 'standard') { this.pad = p; break; }
     const want = (this.k('ArrowRight', 'KeyD') ? 1 : 0) - (this.k('ArrowLeft', 'KeyA') ? 1 : 0);
-    // keyboard steering winds on quickly (a little slower at speed), releases fast and counter-steers faster still
-    const wind = 5.0 + (3.0 - 5.0) * Math.max(0, Math.min(1, speed / 55));
-    const rate = want === 0 ? 8 : Math.sign(want) !== Math.sign(this.steer) && this.steer !== 0 ? 10 : wind;
+    const sp = Math.max(0, Math.min(1, speed / 55)), reversing = want !== 0 && Math.sign(want) !== Math.sign(this.steer) && this.steer !== 0;
+    let rate: number;
+    if (arcade) {
+      // arcade: a slow, progressive ramp (slower still near full lock and at speed), gentle release, quick reversal
+      rate = want === 0 ? 6 : reversing ? 10 : Math.abs(this.steer) < 0.5 ? 6 - 3 * sp : 3 - 2 * sp;
+    } else {
+      // keyboard steering winds on quickly (a little slower at speed), releases fast and counter-steers faster still
+      rate = want === 0 ? 8 : reversing ? 10 : 5.0 + (3.0 - 5.0) * sp;
+    }
     this.steer += Math.max(-rate * dt, Math.min(rate * dt, want - this.steer));
     o.steer = this.steer; o.throttle = this.k('ArrowUp', 'KeyW') ? 1 : 0; o.brake = this.k('ArrowDown', 'KeyS') ? 1 : 0;
     o.nitro = this.k('ShiftLeft', 'ShiftRight', 'KeyN'); o.handbrake = this.k('Space'); o.shift = 0;

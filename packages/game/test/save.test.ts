@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { migrateCareer } from '../src/save';
+import { cleanSettings, migrateCareer } from '../src/save';
 import { newCareer } from '../../sim/src/index';
 
 describe('career migration', () => {
@@ -24,5 +24,16 @@ describe('career migration', () => {
     expect(migrateCareer({ v: 2 })).toEqual(newCareer());
     const c = migrateCareer({ v: 1, parts: { engine: 99, tyres: -4 } });
     expect(c.cars.aurora.parts.engine).toBe(3); expect(c.cars.aurora.parts.tyres).toBe(0);
+  });
+});
+
+describe('settings', () => {
+  it('defaults handling to arcade, keeps old saves, round trips and rejects junk', () => {
+    expect(cleanSettings({}).handling).toBe('arcade');
+    expect(cleanSettings({ quality: 'low', auto: false }).handling).toBe('arcade');
+    expect(cleanSettings({ quality: 'low', auto: false }).quality).toBe('low');
+    const s = cleanSettings({ handling: 'sim' }); expect(cleanSettings(JSON.parse(JSON.stringify(s))).handling).toBe('sim');
+    expect(cleanSettings({ handling: 'drift' }).handling).toBe('arcade');
+    expect(cleanSettings(null).handling).toBe('arcade');
   });
 });

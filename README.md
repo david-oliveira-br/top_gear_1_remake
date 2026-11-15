@@ -37,6 +37,8 @@ Use um navegador recente (Chrome/Edge). Em notebooks com duas placas de vídeo, 
 | Olhar para trás (segure) | B | R3 (clique do analógico direito) |
 | Pausa · modo foto | Esc · P | Start |
 
+**Dirigibilidade** (Opções): *Arcade (estilo NFS)*, o padrão, com direção mais progressiva, aderência generosa e carro fácil de controlar; ou *Simulação (realista)*, a física completa, mais solta e exigente. Vale só para o seu carro: os rivais sempre usam a física de simulação. Para capturas, `?handling=arcade|sim` na URL sobrepõe a opção.
+
 ## O que há
 
 - **Física** própria e determinística a 60 Hz (`packages/sim`): pneus com ângulo de deriva, transferência de peso,

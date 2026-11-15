@@ -210,6 +210,7 @@ export class CarVisual {
     this.wing.visible = (o.aero ?? 0) > 0; this.wing.position.y = (o.aero ?? 0) >= 3 ? 0.06 : 0;
     this.baseY = -0.012 * (o.lower ?? 0);
   }
+  private steerLP = 0;
   /** Pose from the simulation. Angles in radians; `gradF`/`gradR` are the road gradient along the car and to its right. */
   place(x: number, y: number, z: number, yaw: number, o: { speed: number; steer: number; /** steer / steerLimit, -1..1 */ steerN?: number; ax: number; ay: number; gradF: number; gradR: number; brake: number; dt: number; lamps?: number }) {
     const g = this.group, k = Math.min(1, o.dt * 9);
@@ -221,7 +222,7 @@ export class CarVisual {
     this.spin += (o.speed / this.wheelR) * o.dt;
     const ws = this.glb ? this.glbWheels : this.wheels;
     // front wheels turn more than the physical angle, which is only a few degrees at speed: ~14 deg at speed, ~29 deg parked, at full lock
-    const sn = Math.max(-1, Math.min(1, o.steerN ?? o.steer / 0.3)), mag = Math.max(Math.abs(o.steer), Math.abs(sn) * (0.5 + (0.24 - 0.5) * Math.min(1, Math.abs(o.speed) / 50))), ang = (sn !== 0 ? Math.sign(sn) : Math.sign(o.steer)) * mag;
+    const snRaw = Math.max(-1, Math.min(1, o.steerN ?? o.steer / 0.3)); this.steerLP += (snRaw - this.steerLP) * Math.min(1, o.dt * 12); const sn = this.steerLP, mag = Math.max(Math.abs(o.steer), Math.abs(sn) * (0.42 - 0.22 * Math.min(1, Math.abs(o.speed) / 50))), ang = (sn !== 0 ? Math.sign(sn) : Math.sign(o.steer)) * mag;
     for (let i = 0; i < ws.length; i++) { const w = ws[i]; w.children[0].rotation.x = this.spin; w.rotation.y = (this.glb ? i < 2 : i >= 2) ? -ang : 0; }
     if (this.wheelNode) this.wheelNode.rotation.z = sn * 1.6;
     if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, sn * 1.6);
