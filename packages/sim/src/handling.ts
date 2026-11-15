@@ -17,6 +17,10 @@ export interface Handling {
   stabMinV: number; stabFade: number; stabOffHb: boolean;
   /** yaw-rate clamp factor = yawBase + yawDrift*drift, gain (x inertia) */
   yawBase: number; yawDrift: number; yawGain: number;
+  /** yaw-clamp gain while the yaw rate is recovering toward the velocity direction (== yawGain for SIM) */
+  yawRecover: number;
+  /** low-speed steering-limit boost (0 = none) and steering input response curve (0 = linear) */
+  limBoost: number; steerCurve: number;
   /** slide dead zone (rad) = deadBase + deadDrift*drift; slide gain = (gainBase+gainPoise*poise)*(1-drift) + gainDrift*drift */
   deadBase: number; deadDrift: number; gainBase: number; gainPoise: number; gainDrift: number;
   /** off-road grip multiplier and rolling resistance coefficient */
@@ -33,7 +37,7 @@ export const SIM: Handling = {
   counterGain: 0, counterDead: 0.04, counterMinV: 8, counterClamp: 0.6,
   hbLateral: 0.5, hbDrag: 0.7,
   stabMinV: 10, stabFade: 10, stabOffHb: true,
-  yawBase: 1.25, yawDrift: 0, yawGain: 4,
+  yawBase: 1.25, yawDrift: 0, yawGain: 4, yawRecover: 4, limBoost: 0, steerCurve: 0,
   deadBase: 0.1, deadDrift: 0, gainBase: 4, gainPoise: 3, gainDrift: 0,
   offGrip: 0.58, offRoll: 0.09,
   slipFNorm: 0.16, slipRNorm: 0.14,
@@ -41,13 +45,13 @@ export const SIM: Handling = {
 
 export const ARCADE: Handling = {
   arcade: true, margin: 0.07,
-  steerBase: 1.6, steerPoise: 1.0, steerOff: 0.2,
+  steerBase: 3.2, steerPoise: 1.0, steerOff: 0.35,
   frontStiff: 12, frontKeepCap: 0.6,
   rearBase: 1.08, rearPoise: 0.04,
-  counterGain: 0.9, counterDead: 0.04, counterMinV: 3, counterClamp: 0.6,
+  counterGain: 0.9, counterDead: 0.08, counterMinV: 3, counterClamp: 0.6,
   hbLateral: 0.5, hbDrag: 0.5,
   stabMinV: 3, stabFade: 6, stabOffHb: false,
-  yawBase: 1.05, yawDrift: 3.5, yawGain: 30,
+  yawBase: 1.05, yawDrift: 3.5, yawGain: 100, yawRecover: 30, limBoost: 0.6, steerCurve: 1.3,
   deadBase: 0.05, deadDrift: 0.32, gainBase: 26, gainPoise: 6, gainDrift: 40,
   offGrip: 0.7, offRoll: 0.06,
   slipFNorm: 0.18, slipRNorm: 0.108,

@@ -222,10 +222,10 @@ export class CarVisual {
     this.spin += (o.speed / this.wheelR) * o.dt;
     const ws = this.glb ? this.glbWheels : this.wheels;
     // front wheels turn more than the physical angle, which is only a few degrees at speed: ~14 deg at speed, ~29 deg parked, at full lock
-    const snRaw = Math.max(-1, Math.min(1, o.steerN ?? o.steer / 0.3)); this.steerLP += (snRaw - this.steerLP) * Math.min(1, o.dt * 12); const sn = this.steerLP, mag = Math.max(Math.abs(o.steer), Math.abs(sn) * (0.42 - 0.22 * Math.min(1, Math.abs(o.speed) / 50))), ang = (sn !== 0 ? Math.sign(sn) : Math.sign(o.steer)) * mag;
+    const snRaw = Math.max(-1, Math.min(1, o.steerN ?? o.steer / 0.3)); this.steerLP += (snRaw - this.steerLP) * Math.min(1, o.dt * 12); const sn = this.steerLP, mag = Math.max(Math.abs(o.steer), Math.abs(sn) * (0.50 - 0.22 * Math.min(1, Math.abs(o.speed) / 50))), ang = (sn !== 0 ? Math.sign(sn) : Math.sign(o.steer)) * mag;
     for (let i = 0; i < ws.length; i++) { const w = ws[i]; w.children[0].rotation.x = this.spin; w.rotation.y = (this.glb ? i < 2 : i >= 2) ? -ang : 0; }
-    if (this.wheelNode) this.wheelNode.rotation.z = sn * 1.6;
-    if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, sn * 1.6);
+    if (this.wheelNode) this.wheelNode.rotation.z = sn * 2.4;
+    if (this.steerPivot) this.steerPivot.quaternion.setFromAxisAngle(this.steerAxis, sn * 2.4);
     if (this.concept) { const l = o.lamps ?? 1; if (this.tail) this.tail.emissiveIntensity = 0.3 + l * 0.9 + this.brake.value * 7; if (this.head) this.head.emissiveIntensity = 0.4 + l * 6; if (this.sig) this.sig.emissiveIntensity = 0.1 + l * 0.6; return; }
     this.lamps.value = o.lamps ?? 1;
   }

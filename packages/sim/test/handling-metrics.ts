@@ -53,10 +53,10 @@ const move = (steer: number, want: number, rate: number, dt: number) => steer + 
 const reversing = (steer: number, want: number) => Math.sign(want) !== Math.sign(steer) && steer !== 0;
 /** Today's (Simulacao) keyboard ramp: wind-on 5 -> 3 /s by speed/55, release 8, reversal 10. */
 export const simRamp: Ramp = (steer, want, dt, speed) => move(steer, want, want === 0 ? 8 : reversing(steer, want) ? 10 : 5 - 2 * clamp01(speed / 55), dt);
-/** Planned Arcade ramp: release 6, reversal 10, wind-on below sp 0.5 = 6-3sp, above = 3-2sp. */
+/** Arcade ramp (mirrors input.ts): release 7, reversal 12, wind-on keyed on |steer|: <0.5 = 8-2sp, else 5-1.5sp. */
 export const arcadeRamp: Ramp = (steer, want, dt, speed) => {
-  const sp = clamp01(speed / 55), wind = sp < 0.5 ? 6 - 3 * sp : 3 - 2 * sp;
-  return move(steer, want, want === 0 ? 6 : reversing(steer, want) ? 10 : wind, dt);
+  const sp = clamp01(speed / 55);
+  return move(steer, want, want === 0 ? 7 : reversing(steer, want) ? 12 : Math.abs(steer) < 0.5 ? 8 - 2 * sp : 5 - 1.5 * sp, dt);
 };
 export const RAMPS = { sim: simRamp, arcade: arcadeRamp };
 const beta = (c: Car) => Math.atan2(c.vy, Math.max(1, Math.abs(c.vx)));

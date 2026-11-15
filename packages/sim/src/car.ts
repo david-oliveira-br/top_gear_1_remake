@@ -36,13 +36,13 @@ export function makeCar(id: number, spec: CarSpec): Car {
 }
 
 /** Largest useful steering angle at a given speed: enough to reach the grip limit, no more. */
-export function steerLimit(s: CarSpec, v: number, grip = 1, margin = 0.085) {
-  return Math.max(0.045, Math.min(0.6, Math.atan((s.wheelbase * s.mu * grip * G * 1.1) / Math.max(1, v * v)) + margin));
+export function steerLimit(s: CarSpec, v: number, grip = 1, margin = 0.085, boost = 0) {
+  return Math.max(0.045, Math.min(0.6, Math.atan(((s.wheelbase * s.mu * grip * G * 1.1) / Math.max(1, v * v)) * (1 + boost * Math.max(0, 1 - v / 50))) + margin));
 }
 
 /** Steering angle as a fraction of the limit at this speed (for the steering wheel and the front wheels on screen). */
-export function steerNorm(s: CarSpec, v: number, grip: number, steer: number, margin = 0.085) {
-  return steer / steerLimit(s, v, grip, margin);
+export function steerNorm(s: CarSpec, v: number, grip: number, steer: number, margin = 0.085, boost = 0) {
+  return steer / steerLimit(s, v, grip, margin, boost);
 }
 
 /** Lateral tyre force. `stiff` is the cornering stiffness at rest; load transfer and `keep` (grip left after braking or driving) change the peak, not the initial response. */
@@ -70,8 +70,10 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
   for (let k = 0; k < SUB; k++) {
     const v = Math.hypot(c.vx, c.vy), fwd = c.vx >= 0 ? 1 : -1;
     // steering
-    const lim = steerLimit(s, v, h.arcade && c.offRoad ? c.grip * h.offGrip : c.grip, h.margin);
-    let target = Math.max(-1, Math.min(1, inp.steer)) * lim;
+    const lim = steerLimit(s, v, h.arcade && c.offRoad ? c.grip * h.offGrip : c.grip, h.margin, h.limBoost);
+    let u = Math.max(-1, Math.min(1, inp.steer));
+    if (h.steerCurve) u = (u * (1 + h.steerCurve)) / (1 + h.steerCurve * Math.abs(u));
+    let target = u * lim;
     if (h.counterGain > 0 && v > h.counterMinV) {
       const bt = Math.atan2(c.vy, Math.abs(c.vx));
       if (Math.abs(bt) > h.counterDead) target = Math.max(-h.counterClamp, Math.min(h.counterClamp, target + h.counterGain * (bt - Math.sign(bt) * h.counterDead) * fwd));
@@ -144,7 +146,7 @@ export function stepCar(c: Car, inp: Input, t: Track, hold: boolean) {
     if (!(h.stabOffHb && inp.handbrake) && v > h.stabMinV) {
       const wzMax = (mu * (G + down / s.mass) * (h.yawBase + h.yawDrift * drift)) / v, beta = Math.atan2(c.vy, Math.abs(c.vx)), fade = Math.max(0, Math.min(1, (v - h.stabMinV) / h.stabFade));
       const dead = h.deadBase + h.deadDrift * drift;
-      if (Math.abs(c.wz) > wzMax) MZ -= Math.sign(c.wz) * (Math.abs(c.wz) - wzMax) * s.inertia * h.yawGain;
+      if (Math.abs(c.wz) > wzMax) MZ -= Math.sign(c.wz) * (Math.abs(c.wz) - wzMax) * s.inertia * (c.wz * beta * fwd > 0 ? h.yawRecover : h.yawGain);
       if (Math.abs(beta) > dead) MZ += (beta - Math.sign(beta) * dead) * s.inertia * ((h.gainBase + h.gainPoise * s.poise) * (1 - drift) + h.gainDrift * drift) * fwd * fade;
     }
     ax = FX / s.mass; ay = FY / s.mass;

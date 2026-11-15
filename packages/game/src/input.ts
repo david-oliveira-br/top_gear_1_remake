@@ -25,7 +25,7 @@ export class Controls {
     let rate: number;
     if (arcade) {
       // arcade: a slow, progressive ramp (slower still near full lock and at speed), gentle release, quick reversal
-      rate = want === 0 ? 6 : reversing ? 10 : Math.abs(this.steer) < 0.5 ? 6 - 3 * sp : 3 - 2 * sp;
+      rate = want === 0 ? 7 : reversing ? 12 : Math.abs(this.steer) < 0.5 ? 8 - 2 * sp : 5 - 1.5 * sp;
     } else {
       // keyboard steering winds on quickly (a little slower at speed), releases fast and counter-steers faster still
       rate = want === 0 ? 8 : reversing ? 10 : 5.0 + (3.0 - 5.0) * sp;

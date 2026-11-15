@@ -67,8 +67,8 @@ describe('arcade handling', () => {
       const v = kmh(100), ug = understeerGradient(c.spec, v, h); expect(ug, c.id).toBeGreaterThan(0.8); expect(ug, c.id).toBeLessThan(3.0);
       for (const k of speeds) {
         const l25 = lockShare(c.spec, kmh(k), 0.25, h), l50 = lockShare(c.spec, kmh(k), 0.5, h);
-        expect(l25, `${c.id} ${k} 25%`).toBeGreaterThan(0.3); expect(l25, `${c.id} ${k} 25%`).toBeLessThan(0.6);
-        expect(l50, `${c.id} ${k} 50%`).toBeGreaterThan(0.6); expect(l50, `${c.id} ${k} 50%`).toBeLessThan(0.92);
+        expect(l25, `${c.id} ${k} 25%`).toBeGreaterThan(0.65); expect(l25, `${c.id} ${k} 25%`).toBeLessThan(0.95);
+        expect(l50, `${c.id} ${k} 50%`).toBeGreaterThan(0.88); expect(l50, `${c.id} ${k} 50%`).toBeLessThan(1.05);
       }
     }
   });
@@ -76,11 +76,17 @@ describe('arcade handling', () => {
     for (const c of CARS) for (const k of speeds) {
       const st = stepSteer(c.spec, kmh(k), 1, h);
       expect(st.t90, `${c.id} ${k}`).toBeLessThan(0.45); expect(st.overshoot, `${c.id} ${k} raw`).toBeLessThan(1.5); expect(st.maxBeta, `${c.id} ${k}`).toBeLessThan(0.3);
-      expect(keyHold(c.spec, kmh(k), h, arcadeRamp).overshoot, `${c.id} ${k} key`).toBeLessThan(1.35);
+      expect(keyHold(c.spec, kmh(k), h, arcadeRamp).overshoot, `${c.id} ${k} key`).toBeLessThan(1.30);
     }
   });
-  it('a 0.25 s tap at 180 km/h turns the car 5 degrees at most', () => {
-    for (const c of CARS) expect(keyTap(c.spec, kmh(180), 0.25, h, arcadeRamp), c.id).toBeLessThan(5);
+  it('a 0.25 s tap turns 3.8-5.8 degrees at 180 km/h and over 7 at 100 km/h', () => {
+    for (const c of CARS) {
+      const t = keyTap(c.spec, kmh(180), 0.25, h, arcadeRamp); expect(t, `${c.id} 180`).toBeGreaterThan(3.8); expect(t, `${c.id} 180`).toBeLessThan(5.8);
+      expect(keyTap(c.spec, kmh(100), 0.25, h, arcadeRamp), `${c.id} 100`).toBeGreaterThan(7);
+    }
+  });
+  it('steerLimit without a boost equals boost 0', () => {
+    for (const c of CARS) for (const k of speeds) for (const g of [0.6, 1]) expect(steerLimit(c.spec, kmh(k), g, 0.085)).toBe(steerLimit(c.spec, kmh(k), g, 0.085, 0));
   });
   it('braking or powering at full lock stays catchable', () => {
     for (const c of CARS) for (const k of speeds) {
