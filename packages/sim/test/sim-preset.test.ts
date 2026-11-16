@@ -34,7 +34,7 @@ function scripted(carId: string) {
 function compute() {
   const out: Record<string, unknown> = { solo: {}, grid: {}, scripted: {} };
   for (const id of IDS) { (out.solo as any)[id] = soloAce(id); (out.grid as any)[id] = grid(id); }
-  for (const c of CARS) (out.scripted as any)[c.id] = scripted(c.id);
+  for (const c of CARS.slice(0, 7)) (out.scripted as any)[c.id] = scripted(c.id);
   return JSON.parse(JSON.stringify(out));
 }
 

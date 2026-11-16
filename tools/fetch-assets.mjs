@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 const OUT = new URL('../packages/game/public/assets/', import.meta.url).pathname;
 const UA = { 'User-Agent': 'asset-fetch/1.0' };
-const HDRIS = [['kloppenheim_06_puresky', '4k'], ['kloofendal_43d_clear_puresky', '2k'], ['kloofendal_48d_partly_cloudy_puresky', '2k']];
+const HDRIS = [['kloppenheim_06_puresky', '4k'], ['kloofendal_43d_clear_puresky', '2k'], ['kloofendal_48d_partly_cloudy_puresky', '2k'], ['belfast_sunset_puresky', '2k'], ['kloofendal_overcast_puresky', '2k']];
 // id, resolution, maps
 const TEXTURES = [
   ['asphalt_04', '2k', ['Diffuse', 'nor_gl', 'Rough']],

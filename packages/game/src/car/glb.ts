@@ -25,7 +25,7 @@ export const defaultAnchors = (): CarAnchors => ({ head: new THREE.Vector3(0.36,
 export interface ModelDef { file: string; type: 'concept' | 'legacy' | 'norm'; car?: CarId; }
 export const CAR_MODELS: ModelDef[] = [
   { file: 'CarConcept', type: 'concept', car: 'aurora' }, { file: '1990s-sports-car', type: 'legacy' }, { file: '1980s-sports-car', type: 'legacy' },
-  ...(['corvette', 'cuda', 'mustang', 'golf', 'm635', 'alfa155'] as CarId[]).map((c): ModelDef => ({ file: c, type: 'norm', car: c })),
+  ...(['corvette', 'cuda', 'mustang', 'golf', 'm635', 'alfa155', 'rsk', 'cobra', 'viper', 'camaro', 'm1', 'e850', 'z8', 'contgt', 'batur'] as CarId[]).map((c): ModelDef => ({ file: c, type: 'norm', car: c })),
 ];
 /** Model kind that draws a car (falls back to the Aurora). */
 export const kindOf = (id: string): number => Math.max(0, CAR_MODELS.findIndex((m) => m.car === id));
@@ -149,17 +149,46 @@ function measureConcept(root: THREE.Group): CarKit | null {
     concept: { hubs: pos, axleYaw, steerCentre: c, steerAxis: n } };
 }
 
-/** Load all models once. Failures leave the kit missing so callers fall back to the procedural body. */
-export async function preloadCars(base = '/') {
-  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
-  await Promise.all(CAR_MODELS.map(async (m, i) => {
-    if (m.type === 'legacy') return; // the CC0 coupes are no longer drawn; kinds 1 and 2 fall back to procedural bodies
-    try {
-      const g = await loader.loadAsync(`${base}assets/cars/${m.file}.glb`), k = m.type === 'concept' ? measureConcept(g.scene) : m.type === 'norm' ? measureNorm(g.scene, m.file) : measure(g.scene);
-      if (k) kits.set(i, k); else console.warn('car model not recognised', m.file);
-    } catch (e) { console.warn('car model failed', m.file, e); }
-  }));
-  try { cockpit = (await loader.loadAsync(`${base}assets/cars/sports-car-cockpit-light.glb`)).scene; } catch (e) { console.warn('cockpit model failed', e); }
+let loader: GLTFLoader | null = null, assetBase = '/';
+const getLoader = () => (loader ??= new GLTFLoader().setMeshoptDecoder(MeshoptDecoder));
+const inflight = new Map<number, Promise<void>>();
+/** Most recently used first. Kits beyond MAX_KITS that the caller does not need are evicted and their GPU resources freed. */
+const lru: number[] = [], MAX_KITS = 7;
+function disposeKit(k: CarKit) {
+  const seen = new Set<unknown>();
+  k.scene.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; m.geometry.dispose();
+    for (const mt of Array.isArray(m.material) ? m.material : [m.material]) { for (const v of Object.values(mt)) if ((v as THREE.Texture | null)?.isTexture && !seen.has(v)) { seen.add(v); (v as THREE.Texture).dispose(); } mt.dispose(); } });
+}
+function touch(kind: number, keep: number[] = []) {
+  const i = lru.indexOf(kind); if (i >= 0) lru.splice(i, 1); lru.unshift(kind);
+  for (let j = lru.length - 1; j >= 0 && lru.length > MAX_KITS; j--) {
+    const k = lru[j]; if (k === kind || keep.includes(k)) continue;
+    lru.splice(j, 1); const kit = kits.get(k); kits.delete(k); if (kit) disposeKit(kit);
+  }
+}
+/** Load one model on demand (deduped while in flight). Failures leave the kit missing so callers fall back to the procedural body. */
+export function loadKit(kind: number, keep: number[] = []): Promise<void> {
+  const m = CAR_MODELS[kind];
+  if (!m || m.type === 'legacy') return Promise.resolve(); // the CC0 coupes are no longer drawn; they fall back to procedural bodies
+  if (kits.has(kind)) { touch(kind, keep); return Promise.resolve(); }
+  let p = inflight.get(kind);
+  if (!p) {
+    p = (async () => {
+      try {
+        const g = await getLoader().loadAsync(`${assetBase}assets/cars/${m.file}.glb`), k = m.type === 'concept' ? measureConcept(g.scene) : m.type === 'norm' ? measureNorm(g.scene, m.file) : measure(g.scene);
+        if (k) kits.set(kind, k); else console.warn('car model not recognised', m.file);
+      } catch (e) { console.warn('car model failed', m.file, e); }
+      inflight.delete(kind);
+    })();
+    inflight.set(kind, p);
+  }
+  return p.then(() => { if (kits.has(kind)) touch(kind, keep); });
+}
+/** Load the models of these cars (player, rivals); resolves when all are ready. They are protected from eviction meanwhile. */
+export const loadKits = (cars: CarId[]) => { const kinds = [...new Set(cars.map(kindOf))]; return Promise.all(kinds.map((k) => loadKit(k, kinds))).then(() => undefined); };
+export async function initCars(base = '/') {
+  assetBase = base;
+  try { cockpit = (await getLoader().loadAsync(`${base}assets/cars/sports-car-cockpit-light.glb`)).scene; } catch (e) { console.warn('cockpit model failed', e); }
 }
 /** First-person interior (CC0 "Sports Car Cockpit"), drawn only for the player's car in the cockpit view. Same scale and ground as the car models. */
 let cockpit: THREE.Group | null = null;

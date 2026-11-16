@@ -1,8 +1,10 @@
 import { BASE, ratings, torqueAt, type CarSpec } from './specs';
 
-export type CarId = 'aurora' | 'corvette' | 'cuda' | 'mustang' | 'golf' | 'm635' | 'alfa155';
+export type CarId = 'aurora' | 'corvette' | 'cuda' | 'mustang' | 'golf' | 'm635' | 'alfa155' | 'rsk' | 'cobra' | 'viper' | 'camaro' | 'm1' | 'e850' | 'z8' | 'contgt' | 'batur';
 export type Drivetrain = 'RWD' | 'FWD' | 'AWD';
-export interface CarDef { id: CarId; name: string; year: number; blurb: string; drivetrain: Drivetrain; spec: CarSpec; }
+export interface CarDef { id: CarId; name: string; year: number; blurb: string; drivetrain: Drivetrain; spec: CarSpec;
+  /** how the car is earned: reputation reached and/or an event won (place 1). No `unlock`: available from the start. */
+  unlock?: { rep?: number; needs?: string }; }
 
 /** Chassis dimensions are constants for now; they may later be measured from models.gen.json. */
 function chassis(mass: number, wheelbase: number, front: number, wheelR: number, halfW: number, halfL: number, cgHeight: number): Partial<CarSpec> {
@@ -35,6 +37,33 @@ export const CARS: CarDef[] = [
   { id: 'alfa155', name: 'Alfa Romeo 155 Q4', year: 1992, drivetrain: 'AWD',
     blurb: 'Tração integral quase de rali: muita aderência e saída de curva imbatível no molhado.',
     spec: car({ ...chassis(1400, 2.54, 0.45, 0.32, 0.96, 2.22, 0.5), torque: 300, redline: 7000, mu: 1.16, brake: 10500, poise: 0.45, cda: 0.7, cla: 0.12, driveFront: 0.45, eff: 0.86 }) },
+  { id: 'rsk', name: 'Porsche 718 RSK', year: 1959, drivetrain: 'RWD', unlock: { rep: 30 },
+    blurb: 'Barchetta de corrida com pouco mais de meia tonelada: ágil e comunicativa, mas com motor de pouco fôlego.',
+    spec: car({ ...chassis(620, 2.22, 0.42, 0.347, 0.824, 2.075, 0.45), torque: 165, redline: 8000, mu: 1.16, brake: 8200, poise: 0.4, cda: 0.62, cla: 0.05, steerRate: 1.0, balance: 0, inertia: 620 * 2.22 * 2.22 * 0.25 }) },
+  { id: 'camaro', name: 'Chevrolet Camaro SS 350', year: 1967, drivetrain: 'RWD', unlock: { rep: 30 },
+    blurb: 'Muscle car clássico de V8 grande: força de sobra, direção lenta e traseira solta ao acelerar.',
+    spec: car({ ...chassis(1560, 2.74, 0.53, 0.325, 0.947, 2.336, 0.52), torque: 500, redline: 5800, mu: 1.05, brake: 9200, poise: 0.3, cda: 0.8, cla: 0.1, steerRate: 0.9 }) },
+  { id: 'm1', name: 'BMW M1', year: 1981, drivetrain: 'RWD', unlock: { rep: 90 },
+    blurb: 'Supercarro de motor central com seis em linha: leve, preciso e muito estável nas curvas.',
+    spec: car({ ...chassis(1300, 2.56, 0.42, 0.315, 1.007, 2.177, 0.47), torque: 330, redline: 7000, mu: 1.13, brake: 10200, poise: 0.45, cda: 0.62, cla: 0.12, steerRate: 1.1, balance: 0.02 }) },
+  { id: 'z8', name: 'BMW Z8', year: 2000, drivetrain: 'RWD', unlock: { rep: 90 },
+    blurb: 'Roadster de V8 e alumínio: equilíbrio quase perfeito entre conforto, potência e controle.',
+    spec: car({ ...chassis(1585, 2.5, 0.5, 0.34, 0.966, 2.179, 0.5), torque: 500, redline: 7000, mu: 1.11, brake: 10600, poise: 0.45, cda: 0.72, cla: 0.12, balance: 0.01 }) },
+  { id: 'e850', name: 'BMW 850CSi', year: 1995, drivetrain: 'RWD', unlock: { rep: 170 },
+    blurb: 'Grã-turismo de V12: pesado e muito rápido em reta, pede frenagens antecipadas.',
+    spec: car({ ...chassis(1870, 2.68, 0.52, 0.323, 1.039, 2.404, 0.52), torque: 550, redline: 6400, mu: 1.08, brake: 11000, poise: 0.55, cda: 0.64, cla: 0.12, steerRate: 0.85, balance: -0.02 }) },
+  { id: 'cobra', name: 'Shelby Cobra 427', year: 1966, drivetrain: 'RWD', unlock: { rep: 170 },
+    blurb: 'Roadster leve com um V8 de 7 litros: aceleração brutal, mas o arrasto limita a velocidade final.',
+    spec: car({ ...chassis(1150, 2.29, 0.5, 0.331, 0.894, 2.009, 0.46), torque: 650, redline: 6200, mu: 1.05, brake: 9000, poise: 0.3, cda: 0.95, cla: 0.05, steerRate: 1.0, balance: 0.02 }) },
+  { id: 'viper', name: 'Dodge Viper RT/10', year: 1992, drivetrain: 'RWD', unlock: { needs: 'niagara-rival' },
+    blurb: 'V10 de 8 litros sem controle de tração: aderência alta, mas a traseira castiga quem se distrai.',
+    spec: car({ ...chassis(1530, 2.44, 0.49, 0.327, 0.976, 2.22, 0.48), torque: 630, redline: 6000, mu: 1.12, brake: 10600, poise: 0.25, cda: 0.7, cla: 0.1, balance: 0.03 }) },
+  { id: 'contgt', name: 'Bentley Continental GT', year: 2018, drivetrain: 'AWD', unlock: { rep: 300 },
+    blurb: 'Tração integral, W12 biturbo e duas toneladas e meia de aderência: voa em qualquer piso.',
+    spec: car({ ...chassis(2250, 2.85, 0.55, 0.38, 1.111, 2.424, 0.53), torque: 660, redline: 6000, mu: 1.12, brake: 12500, poise: 0.6, cda: 0.7, cla: 0.12, steerRate: 0.8, balance: -0.03, driveFront: 0.3, eff: 0.86 }) },
+  { id: 'batur', name: 'Bentley Mulliner Batur', year: 2023, drivetrain: 'AWD', unlock: { needs: 'austral-rival' },
+    blurb: 'O Bentley mais extremo já feito: W12 de mil newton-metros, aerodinâmica ativa e tração integral.',
+    spec: car({ ...chassis(2150, 2.85, 0.55, 0.37, 1.131, 2.45, 0.5), torque: 680, redline: 6200, mu: 1.15, brake: 13000, poise: 0.6, cda: 0.7, cla: 0.18, steerRate: 0.85, balance: -0.02, driveFront: 0.3, eff: 0.86 }) },
 ];
 
 export const DEFAULT_CAR: CarId = 'aurora';

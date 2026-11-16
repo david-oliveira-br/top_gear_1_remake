@@ -19,6 +19,16 @@ describe('career migration', () => {
     expect(c.car).toBe('golf'); expect(c.cars.golf.parts.brakes).toBe(2);
     expect(migrateCareer({ ...JSON.parse(JSON.stringify(n)), car: 'delorean' }).car).toBe('aurora');
   });
+  it('fills setups for new cars when migrating a 7-car save', () => {
+    const n = JSON.parse(JSON.stringify(newCareer())); for (const id of ['rsk', 'cobra', 'viper', 'camaro', 'm1', 'e850', 'z8', 'contgt', 'batur']) delete n.cars[id];
+    n.cars.golf.parts.brakes = 2; expect(Object.keys(n.cars).length).toBe(7);
+    const c = migrateCareer(n); expect(Object.keys(c.cars).length).toBe(16); expect(c.cars.batur.parts.engine).toBe(0); expect(c.cars.golf.parts.brakes).toBe(2);
+  });
+  it('sends a locked selected car back to the Aurora', () => {
+    const n = JSON.parse(JSON.stringify(newCareer())); n.car = 'contgt'; expect(migrateCareer(n).car).toBe('aurora');
+    n.rep = 300; expect(migrateCareer(n).car).toBe('contgt');
+    n.car = 'viper'; expect(migrateCareer(n).car).toBe('aurora'); n.results['niagara-rival'] = { place: 1, best: 1 }; expect(migrateCareer(n).car).toBe('viper');
+  });
   it('falls back to a fresh career on junk and clamps part levels', () => {
     expect(migrateCareer(null)).toEqual(newCareer());
     expect(migrateCareer({ v: 2 })).toEqual(newCareer());

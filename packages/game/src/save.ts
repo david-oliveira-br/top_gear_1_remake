@@ -1,4 +1,4 @@
-import { MAX_LEVEL, PART_IDS, defaultTuning, isCarId, newCareer, newSetup, noParts, type Career, type CarSetup } from '../../sim/src/index';
+import { MAX_LEVEL, PART_IDS, carById, carUnlocked, defaultTuning, isCarId, newCareer, newSetup, noParts, type Career, type CarSetup } from '../../sim/src/index';
 
 export interface Settings { quality: string; auto: boolean; cam: 'chase' | 'far' | 'bumper' | 'hood' | 'cockpit'; radioOn: boolean; handling: 'arcade' | 'sim'; }
 const KEY = 'rh_career', SKEY = 'rh_settings';
@@ -23,6 +23,8 @@ export function migrateCareer(raw: any): Career {
   c.money = num(raw.money, fresh.money); c.rep = num(raw.rep, 0);
   if (!c.results || typeof c.results !== 'object') c.results = {};
   if (!c.ghost || typeof c.ghost !== 'object') c.ghost = {};
+  // a selected car that is still locked (edited save, or progress lost) falls back to the Aurora
+  if (!carUnlocked(carById(c.car), c)) c.car = fresh.car;
   return c;
 }
 export function loadCareer(): Career { try { return migrateCareer(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch { /* fresh start */ } return newCareer(); }

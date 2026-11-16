@@ -62,10 +62,14 @@ export const SONGS: Record<string, Song> = {
     title: 'Viento Sur', bpm: 110, root: 45, scale: PHRYG, prog: [[0, 1, 0, 6], [3, 4, 1, 0]], bass: 'gallop', drums: 'four', arp: 16,
     lead: [['4:3 4:3 5:2 4:8', '5:3 5:3 7:2 5:8', '4:3 4:3 2:2 1:8', '0:12 -:4'], ['7:6 8:2 9:8', '8:6 9:2 11:8', '9:4 8:4 7:8', '5:4 4:4 0:8']],
   },
+  austral: {
+    title: 'Ripio y Lluvia', bpm: 100, root: 38, scale: DORIAN, prog: [[0, 3, 6, 3], [5, 6, 3, 0]], bass: 'eighth', drums: 'half', arp: 16,
+    lead: [['-:4 4:4 5:8', '-:4 6:4 7:8', '-:4 5:4 4:4 2:4', '4:8 2:8'], ['9:8 8:4 7:4', '8:8 6:8', '7:4 9:4 8:8', '7:12 -:4']],
+  },
   midnight: {
     title: 'Midnight Lanes', bpm: 86, root: 41, scale: MINOR, prog: [[0, 5, 3, 4], [5, 6, 0, 0]], bass: 'half', drums: 'half', arp: 16,
     lead: [['-:4 2:4 4:8', '-:4 5:4 7:8', '-:4 3:4 5:8', '4:8 6:8'], ['9:8 7:8', '9:8 5:8', '7:8 9:4 11:4', '11:16']],
   },
 };
 /** Songs offered in the jukebox for races. */
-export const RACE_SONGS = ['brazil', 'usa', 'japan', 'norway', 'italy', 'uk', 'egypt', 'australia', 'canada', 'andes', 'midnight'];
+export const RACE_SONGS = ['brazil', 'usa', 'japan', 'norway', 'italy', 'uk', 'egypt', 'australia', 'canada', 'andes', 'austral', 'midnight'];

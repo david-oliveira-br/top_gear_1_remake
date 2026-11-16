@@ -1,0 +1,11 @@
+Model Information:
+* title:	1995 BMW 850CSi
+* source:	https://sketchfab.com/3d-models/1995-bmw-850csi-b57ab386922845f2bc79859d2a8caf4b
+* author:	OUTPISTON (https://sketchfab.com/outpiston)
+
+Model License:
+* license type:	CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions must have the same license.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "1995 BMW 850CSi" (https://sketchfab.com/3d-models/1995-bmw-850csi-b57ab386922845f2bc79859d2a8caf4b) by OUTPISTON (https://sketchfab.com/outpiston) licensed under CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)

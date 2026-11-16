@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import manifest from '../../game/src/car/models.gen.json';
+import { CAR_CREDIT } from '../../game/src/car/credits';
 import fixtureJson from './fixtures/base-specs.json';
-import { BASE, CARS, EVENTS, RIO, PART_IDS, buildSpec, buildTrack, carById, carStats, createRace, defaultTuning, makeCar, newCareer, noInput, noParts, playerSpec, rivalCars, rivalSpec, stepCar, stepRace, locate, heightAt, buyPart, type Driver, type Tuning } from '../src/index';
+import { BASE, CARS, EVENTS, RIO, PART_IDS, buildSpec, buildTrack, carById, carStats, createRace, defaultTuning, makeCar, newCareer, carUnlocked, noInput, noParts, playerSpec, rivalCars, rivalSpec, stepCar, stepRace, locate, heightAt, buyPart, type Driver, type Tuning } from '../src/index';
 
 const track = buildTrack(RIO);
 const ace: Driver = { name: 'ace', skill: 0.97, aggression: 0.5, consistency: 1 };
@@ -32,7 +34,7 @@ describe('buildSpec is base-relative', () => {
 
 describe('cars', () => {
   it('lists the expected ids and falls back to the Aurora', () => {
-    expect(CARS.map((c) => c.id)).toEqual(['aurora', 'corvette', 'cuda', 'mustang', 'golf', 'm635', 'alfa155']);
+    expect(CARS.map((c) => c.id)).toEqual(['aurora', 'corvette', 'cuda', 'mustang', 'golf', 'm635', 'alfa155', 'rsk', 'camaro', 'm1', 'z8', 'e850', 'cobra', 'viper', 'contgt', 'batur']);
     expect(carById('nope').id).toBe('aurora'); expect(carById(undefined).id).toBe('aurora'); expect(carById('golf').drivetrain).toBe('FWD');
     expect(carById('aurora').spec).toBe(BASE);
   });
@@ -41,14 +43,37 @@ describe('cars', () => {
     for (const c of CARS) {
       const st = carStats(buildSpec(noParts(), defaultTuning(), c.spec));
       rows.push(`${c.id} ${JSON.stringify(st)}`);
-      expect(st.zeroTo100).toBeGreaterThan(4.2); expect(st.zeroTo100).toBeLessThan(8);
+      expect(st.zeroTo100).toBeGreaterThan(3.5); expect(st.zeroTo100).toBeLessThan(8);
       for (const k of ['speed', 'accel', 'handling', 'braking'] as const) { expect(st[k]).toBeGreaterThanOrEqual(0); expect(st[k]).toBeLessThanOrEqual(100); }
     }
     console.log(rows.join('\n'));
     const t = (id: string) => carStats(buildSpec(noParts(), defaultTuning(), carById(id).spec));
-    expect(t('corvette').zeroTo100).toBeLessThanOrEqual(Math.min(...CARS.map((c) => t(c.id).zeroTo100)));
+    expect(t('corvette').zeroTo100).toBeLessThanOrEqual(Math.min(...CARS.slice(0, 7).map((c) => t(c.id).zeroTo100)));
     expect(t('golf').speed).toBeLessThan(t('aurora').speed); expect(t('m635').speed).toBeGreaterThan(t('mustang').speed);
     expect(t('cuda').braking).toBeLessThan(t('aurora').braking);
+  });
+  it('has 16 unique cars with models and credits', () => {
+    const ids = CARS.map((c) => c.id); expect(ids.length).toBe(16); expect(new Set(ids).size).toBe(16);
+    for (const id of ids) {
+      if (id !== 'aurora') expect((manifest as Record<string, unknown>)[id], `${id} in models.gen.json`).toBeTruthy();
+      expect(CAR_CREDIT[id], `${id} credit`).toMatch(/CC BY/);
+    }
+  });
+  it('keeps every new car inside the stat envelope of the existing ones', () => {
+    const old = CARS.slice(0, 7), bars = ['speed', 'accel', 'handling', 'braking'] as const, st = (c: typeof CARS[0]) => carStats(buildSpec(noParts(), defaultTuning(), c.spec));
+    const best = Object.fromEntries(bars.map((k) => [k, Math.max(...old.map((c) => st(c)[k]))]));
+    for (const c of CARS.slice(7)) for (const k of bars) expect(st(c)[k], `${c.id}.${k}`).toBeLessThanOrEqual(best[k] + (c.id === 'batur' ? 15 : 8));
+  });
+  it('gates cars on reputation and won events', () => {
+    const c = newCareer(), u = (id: string) => carUnlocked(carById(id), c);
+    expect(u('aurora') && u('corvette') && u('alfa155')).toBe(true);
+    expect(u('rsk')).toBe(false); expect(u('contgt')).toBe(false); expect(u('viper')).toBe(false); expect(u('batur')).toBe(false);
+    c.rep = 30; expect(u('rsk') && u('camaro')).toBe(true); expect(u('m1')).toBe(false);
+    c.rep = 170; expect(u('e850') && u('cobra') && u('m1') && u('z8')).toBe(true); expect(u('contgt')).toBe(false);
+    c.rep = 300; expect(u('contgt')).toBe(true); expect(u('viper')).toBe(false);
+    c.results['niagara-rival'] = { place: 2, best: 1 }; expect(u('viper')).toBe(false);
+    c.results['niagara-rival'].place = 1; expect(u('viper')).toBe(true); expect(u('batur')).toBe(false);
+    c.results['austral-rival'] = { place: 1, best: 1 }; expect(u('batur')).toBe(true);
   });
   it('driveFront changes nothing at 0 and moves a FWD car forward', () => {
     const run = (spec: typeof BASE) => { const c = makeCar(0, spec), i = Math.round(60 / track.step); c.x = track.px[i]; c.z = track.pz[i]; c.yaw = Math.atan2(track.tz[i], track.tx[i]); locate(track, c.x, c.z, -1, c.loc); c.y = heightAt(track, c.loc); const inp = noInput(); inp.throttle = 1; for (let k = 0; k < 300; k++) stepCar(c, inp, track, false); return c; };
@@ -65,7 +90,7 @@ describe('cars', () => {
     for (const c of CARS) {
       const l = lap(c.id); rows.push(`${c.id} ${l.best.toFixed(2)} (${((l.best / ref - 1) * 100).toFixed(1)}%)`);
       expect(l.done).toBe(true); expect(l.hits).toBe(0);
-      expect(l.best).toBeGreaterThan(ref * 0.94); expect(l.best).toBeLessThan(ref * 1.06);
+      expect(l.best).toBeGreaterThan(ref * 0.9); expect(l.best).toBeLessThan(ref * 1.1);
     }
     console.log('rio laps', rows.join(', '));
   });
@@ -79,13 +104,14 @@ describe('career and rivals', () => {
     expect(playerSpec(c).torque).toBeCloseTo(carById('cuda').spec.torque * 1.1, 6);
   });
   it('gives faster cars to faster rivals', () => {
-    const order = ['corvette', 'm635', 'aurora', 'alfa155', 'mustang', 'cuda', 'golf'];
+    const order = ['batur', 'contgt', 'viper', 'cobra', 'z8', 'e850', 'corvette', 'm635', 'aurora', 'alfa155', 'mustang', 'cuda', 'golf'];
     for (const ev of EVENTS) {
       const cars = rivalCars(ev); expect(cars.length).toBe(ev.rivals.length);
       const sk = ev.rivals.map((r) => r.driver.skill);
       for (let i = 1; i < cars.length; i++) if (sk[i] < sk[i - 1]) expect(order.indexOf(cars[i])).toBeGreaterThanOrEqual(order.indexOf(cars[i - 1]));
     }
     expect(rivalCars(EVENTS.find((e) => e.id === 'rio-rival')!)).toEqual(['corvette']);
+    for (const ev of EVENTS.filter((e) => e.rep < 260)) for (const id of rivalCars(ev)) expect(carById(id).unlock).toBeUndefined();
     expect(rivalSpec(0, 'golf').mass).toBe(carById('golf').spec.mass); expect(rivalSpec(2, 'aurora').torque).toBeCloseTo(BASE.torque * 1.2, 6);
   });
 });

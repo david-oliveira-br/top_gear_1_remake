@@ -1,9 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { CARS, CITIES, EVENTS, FINISH_BEFORE_END, MAX_LEVEL, PART_IDS, RIO, TRACKS, buildSpec, buildTrack, buyPart, canBuy, cityDone, cityOpen, dyno, eventOpen, medal, pointAt, priceOf, ratings, settle,
-  ARCADE, SIM, WEATHER, allowedWeather, pickWeather, carById, carStats, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
+  ARCADE, SIM, WEATHER, allowedWeather, pickWeather, carById, carStats, carUnlocked, isCarId, playerSpec, rivalCars, rivalSpec, setupOf, type CarDef, type CarId, type WeatherKind, type Career, type City, type Entrant, type PartId, type RaceEvent, type Track } from '../../sim/src/index';
 import { GameAudio } from './audio/audio';
 import { CUSTOM, Radio, STATIONS } from './audio/radio';
-import { carKit, isHeavy, kindOf, preloadCars } from './car/glb';
+import { CAR_CREDIT } from './car/credits';
+import { carKit, initCars, isHeavy, kindCar, kindOf, loadKit, loadKits } from './car/glb';
 import { CarVisual, FINISHES, PAINTS, WHEELS } from './car/visual';
 import { Engine, QUALITIES } from './gfx/engine';
 import { Globe } from './globe';
@@ -15,6 +16,8 @@ import { makeCoast } from './world/coast';
 import { makeRio } from './world/rio';
 import { makeRockies } from './world/rockies';
 import { makePatagonia } from './world/patagonia';
+import { makeNiagara } from './world/niagara';
+import { makeAustral } from './world/austral';
 import type { World } from './world/base';
 
 const PART_INFO: Record<PartId, [string, string]> = {
@@ -25,15 +28,10 @@ const PART_INFO: Record<PartId, [string, string]> = {
 const KIND: Record<string, string> = { grid: 'Corrida', duel: 'Duelo', trial: 'Contra o relógio', rival: 'Rival' };
 type Screen = 'title' | 'map' | 'garage' | 'race' | 'results' | 'options' | 'loading' | 'cars';
 const WX_ICON: Record<WeatherKind, string> = { clear: '☀️', overcast: '☁️', rain: '🌧️', storm: '⛈️', fog: '🌫️', snow: '❄️' };
-const CAR_CREDIT: Record<CarId, string> = {
-  aurora: 'Modelo "Car Concept" de Eric Chadwick (Khronos), CC BY 4.0.',
-  corvette: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', cuda: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.', mustang: 'Modelo de amogusstrikesback2 (Sketchfab), CC BY 4.0.',
-  golf: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', m635: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.', alfa155: 'Modelo de OUTPISTON (Sketchfab), CC BY-NC-SA 4.0.',
-};
-const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO', rockies: 'AS MONTANHAS ROCHOSAS', patagonia: 'A PATAGÔNIA' };
-const MAKE: Record<string, (eng: Engine, track: Track) => World> = { rio: makeRio, coast: makeCoast, rockies: makeRockies, patagonia: makePatagonia };
+const PLACE_NAME: Record<string, string> = { rio: 'O RIO', coast: 'A COSTA DO PACÍFICO', rockies: 'AS MONTANHAS ROCHOSAS', patagonia: 'A PATAGÔNIA', niagara: 'AS CATARATAS DO NIÁGARA', austral: 'A CARRETERA AUSTRAL' };
+const MAKE: Record<string, (eng: Engine, track: Track) => World> = { rio: makeRio, coast: makeCoast, rockies: makeRockies, patagonia: makePatagonia, niagara: makeNiagara, austral: makeAustral };
 /** Soundtrack of each region's races. */
-const RACE_SONG: Record<string, string> = { rio: 'brazil', coast: 'usa', rockies: 'canada', patagonia: 'andes' };
+const RACE_SONG: Record<string, string> = { rio: 'brazil', coast: 'usa', rockies: 'canada', patagonia: 'andes', niagara: 'midnight', austral: 'austral' };
 
 export class App {
   eng: Engine; world!: World; rioTrack: Track = buildTrack(RIO); track: Track = this.rioTrack; curId = 'rio'; private worlds = new Map<string, { world: World; track: Track }>();
@@ -52,8 +50,10 @@ export class App {
     await this.eng.init(quality); (window as any).__backend = this.eng.backend;
     this.world = makeRio(this.eng, this.track); await this.world.build(); this.worlds.set('rio', { world: this.world, track: this.track }); this.showWorld('rio');
     this.globe = new Globe(this.eng);
-    await preloadCars();
-    if (isCarId(this.q.get('car'))) this.career.car = this.q.get('car') as CarId; // capture helper: ?car=<id> (not saved by itself)
+    await initCars();
+    if (isCarId(this.q.get('car'))) this.career.car = this.q.get('car') as CarId; // capture helper: ?car=<id> (not saved by itself, ignores the lock)
+    else if (!carUnlocked(carById(this.career.car), this.career)) this.career.car = 'aurora';
+    await loadKits([this.career.car]); // the other models load on demand (previews, rivals)
     this.show = new CarVisual(kindOf(this.career.car), true); this.eng.scene.add(this.show.group); this.refreshCar();
     // capture helper: window.__carTris() counts the triangles of the visible car meshes (one pass, no shadows)
     (window as any).__carTris = () => { const out: Record<string, number> = {}; const count = (g: THREE.Object3D) => { let n = 0; g.traverseVisible((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const gm = m.geometry; n += (gm.index ? gm.index.count : gm.attributes.position.count) / 3; } }); return n; };
@@ -223,27 +223,52 @@ export class App {
   private carStep: ((d: number) => void) | null = null;
   /** The setup (paint, finish, parts) a car shows in the showroom. */
   private lookFor(id: CarId): Look { const u = this.career.cars[id]; return { kind: kindOf(id), paint: u.paint, finish: u.finish, wheels: u.wheels, aero: u.parts.aero, lower: u.parts.suspension }; }
+  private carFilter: 'all' | 'classic' | 'modern' | 'awd' = 'all';
+  /** Player-facing requirement of a locked car. */
+  private carNeed(def: CarDef): string {
+    const u = def.unlock; if (!u) return '';
+    if (u.needs && !(this.career.results[u.needs]?.place === 1)) return `Vença ${EVENTS.find((e) => e.id === u.needs)?.name ?? u.needs}`;
+    return `Reputação ${u.rep ?? 0}`;
+  }
   carsScreen(from: 'title' | 'garage' = 'title') {
     this.endSession(); this.showRio(); this.screen = 'cars'; this.clear(); this.globe.show(false); this.music('showroom'); this.orbitAuto = true; this.preview = null;
     const back = () => { this.carStep = null; if (from === 'garage') this.garage(); else this.title(); };
-    let sel = Math.max(0, CARS.findIndex((x) => x.id === this.career.car));
+    const FILTERS: [typeof this.carFilter, string, (c: CarDef) => boolean][] = [['all', 'Todos', () => true], ['classic', 'Clássicos', (c) => c.year < 1980], ['modern', 'Modernos', (c) => c.year >= 1980], ['awd', 'Tração', (c) => c.drivetrain === 'AWD']];
+    const visible = () => CARS.filter(FILTERS.find((f) => f[0] === this.carFilter)![2]);
+    let sel = this.career.car, token = 0;
     const list = h('div.left.carlist'), side = h('div.side');
     this.ui.append(this.topBar('Carros', back), list, side, h('div.hint', null, 'Setas ← → trocam de carro · arraste para girar'));
-    const draw = () => {
-      const def = CARS[sel], st = carStats(def.spec), credit = CAR_CREDIT[def.id];
-      const bar = (name: string, v: number) => [h('div.stat', null, h('span', null, name), h('span', null, v + '')), h('div.bar', null, h('i', { style: { width: v + '%' } }))];
-      list.replaceChildren(h('div.panel', null, ...CARS.map((x, i) => h('button.carcard' + (i === sel ? '.on' : ''), { onclick: () => pick(i) },
-        h('b', null, x.name), h('small', null, `${x.year} · ${x.drivetrain}` + (x.id === this.career.car ? ' · em uso' : ''))))));
+    const bar = (name: string, v: number) => [h('div.stat', null, h('span', null, name), h('span', null, v + '')), h('div.bar', null, h('i', { style: { width: v + '%' } }))];
+    const drawList = () => {
+      const chips = h('div.chips', null, ...FILTERS.map(([id, label]) => h('button' + (this.carFilter === id ? '.on' : ''), { onclick: () => { this.carFilter = id; const v = visible(); if (!v.some((c) => c.id === sel) && v[0]) pick(v[0].id); else drawList(); } }, label)));
+      const grid = h('div.cargrid', null, ...visible().map((x) => {
+        const st = carStats(x.spec), locked = !carUnlocked(x, this.career);
+        return h('button.carcard' + (x.id === sel ? '.on' : '') + (locked ? '.locked' : ''), { onclick: () => pick(x.id) },
+          h('b', null, (locked ? '🔒 ' : '') + x.name), h('small', null, `${x.year} · ${x.drivetrain}` + (x.id === this.career.car ? ' · em uso' : '')),
+          locked ? h('small.need', null, this.carNeed(x)) : h('div.mini', null, ...[st.speed, st.accel, st.handling, st.braking].map((v) => h('div.bar', null, h('i', { style: { width: v + '%' } })))));
+      }));
+      list.replaceChildren(h('div.panel', null, chips, grid));
+      grid.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    };
+    const drawSide = () => {
+      const def = carById(sel), st = carStats(def.spec), locked = !carUnlocked(def, this.career);
       side.replaceChildren(h('div.panel', null, h('h2', null, def.name), h('div', { style: { color: 'var(--dim)' } }, `${def.year} · tração ${def.drivetrain === 'RWD' ? 'traseira' : def.drivetrain === 'FWD' ? 'dianteira' : 'integral'}`),
+        locked ? h('div.lockline', null, '🔒 ' + this.carNeed(def)) : null,
         h('p.blurb', null, def.blurb), ...bar('Velocidade', st.speed), ...bar('Aceleração', st.accel), ...bar('Dirigibilidade', st.handling), ...bar('Frenagem', st.braking),
         h('div.nums', null, h('div', null, h('b', null, st.hp + ' cv'), h('small', null, 'potência')), h('div', null, h('b', null, Math.round(def.spec.mass) + ' kg'), h('small', null, 'peso')),
           h('div', null, h('b', null, st.zeroTo100.toFixed(1) + ' s'), h('small', null, '0–100 km/h')), h('div', null, h('b', null, st.topKmh + ' km/h'), h('small', null, 'final'))),
-        carKit(kindOf(def.id))?.norm?.paintable === false ? h('small.credit', null, 'Pintura original (não pode ser trocada)') : null, h('small.credit', null, credit),
-        h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } }, h('button.pri', { onclick: () => { this.career.car = def.id; saveCareer(this.career); this.audio.ui('ok'); back(); } }, def.id === this.career.car ? 'Manter' : 'Escolher'), h('button', { onclick: back }, 'Voltar'))));
+        carKit(kindOf(def.id))?.norm?.paintable === false ? h('small.credit', null, 'Pintura original (não pode ser trocada)') : null, h('small.credit', null, CAR_CREDIT[def.id]),
+        h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } },
+          h('button.pri', { disabled: locked, onclick: () => { if (!carUnlocked(def, this.career)) return; this.career.car = def.id; saveCareer(this.career); this.audio.ui('ok'); back(); } }, locked ? 'Bloqueado' : def.id === this.career.car ? 'Manter' : 'Escolher'), h('button', { onclick: back }, 'Voltar'))));
     };
-    const pick = (i: number) => { sel = (i + CARS.length) % CARS.length; this.setShow(kindOf(CARS[sel].id), this.lookFor(CARS[sel].id)); draw(); this.audio.ui('move'); };
-    this.carStep = (d) => pick(sel + d);
-    this.setShow(kindOf(CARS[sel].id), this.lookFor(CARS[sel].id)); draw();
+    /** Preview a car: its model loads on demand, the showroom swaps once it is ready. */
+    const pick = (id: CarId, quiet = false) => {
+      sel = id; const t = ++token; drawList(); drawSide(); if (!quiet) this.audio.ui('move');
+      const k = kindOf(id);
+      void loadKit(k, [kindOf(this.career.car), this.show.kind]).then(() => { if (t === token && this.screen === 'cars') { this.setShow(k, this.lookFor(id)); drawSide(); } });
+    };
+    this.carStep = (d) => { const v = visible(); if (!v.length) return; const i = v.findIndex((c) => c.id === sel); pick(v[(i + d + v.length) % v.length].id); };
+    pick(sel, true);
   }
   private dyno(cv: HTMLCanvasElement, a: ReturnType<typeof buildSpec>, b: ReturnType<typeof buildSpec>) {
     const w = (cv.width = cv.clientWidth * 2), hh = (cv.height = cv.clientHeight * 2), g = cv.getContext('2d')!; if (!w) return;
@@ -293,9 +318,11 @@ export class App {
   private weatherSound(kind: WeatherKind) { const r = kind === 'storm' ? 1 : kind === 'rain' ? 0.65 : 0, w = kind === 'storm' ? 1 : kind === 'rain' ? 0.5 : kind === 'snow' || kind === 'overcast' ? 0.3 : kind === 'fog' ? 0.1 : 0; this.audio.setWeatherSound(r, w); }
   async startEvent(ev: RaceEvent) {
     this.endSession(); this.event = ev; this.clear(); this.globe.show(false); this.show.group.visible = false;
-    if (ev.track !== this.curId) {
+    // the models this race needs (player, rivals, and the showroom car so it survives eviction) load with the world, behind the loading screen
+    const need = [...rivalCars(ev), this.career.car, kindCar(this.show.kind)], missing = need.some((id) => !carKit(kindOf(id)));
+    if (ev.track !== this.curId || missing) {
       this.screen = 'loading'; this.ui.append(h('div.load', null, h('h1', null, 'REDLINE HORIZON'), h('div', null, 'CARREGANDO ' + (PLACE_NAME[ev.track] ?? ev.track.toUpperCase()) + '…')));
-      await this.enterWorld(ev.track); this.clear();
+      await Promise.all([ev.track !== this.curId ? this.enterWorld(ev.track) : null, loadKits(need)]); this.clear();
     }
     this.screen = 'race'; this.endTimer = 0; this.lastBeep = 9; this.bestSeen = 0; this.finalSaid = false;
     const c = this.career, auto = this.q.get('auto');

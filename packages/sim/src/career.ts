@@ -1,15 +1,20 @@
 import type { Driver } from './ai';
-import { DEFAULT_CAR, carById, type CarId } from './cars';
+import { NIAGARA_MEDALS } from './tracks/niagara';
+import { AUSTRAL_MEDALS } from './tracks/austral';
+import { CARS, DEFAULT_CAR, carById, type CarDef, type CarId } from './cars';
 import { MAX_LEVEL, PART_PRICE, buildSpec, defaultTuning, noParts, type PartId, type Parts, type Tuning } from './specs';
 
 export interface City { id: string; name: string; country: string; lat: number; lon: number; landmark: string; /** reputation needed to travel there */ rep: number; ready: boolean;
-  /** event id that must have been won (place 1) before the city opens */ needs?: string; }
+  /** event id that must have been won (place 1) before the city opens */ needs?: string;
+  /** map label drawn below the marker (avoids overlapping a neighbouring city) */ labelBelow?: boolean; }
 
 export const CITIES: City[] = [
   { id: 'rio', name: 'Rio de Janeiro', country: 'Brasil', lat: -22.95, lon: -43.21, landmark: 'Cristo Redentor', rep: 0, ready: true },
   { id: 'bigsur', name: 'Big Sur', country: 'EUA', lat: 36.27, lon: -121.81, landmark: 'Ponte em arco e farol', rep: 30, ready: true },
   { id: 'banff', name: 'Banff', country: 'Canadá', lat: 51.18, lon: -115.57, landmark: 'Lago glacial e picos nevados', rep: 90, ready: true },
   { id: 'patagonia', name: 'Torres del Paine', country: 'Chile', lat: -50.94, lon: -73.41, landmark: 'Torres de granito', rep: 170, ready: true, needs: 'rio-rival' },
+  { id: 'niagara', name: 'Niagara Falls', country: 'Canadá', lat: 43.08, lon: -79.07, landmark: 'Cataratas Horseshoe', rep: 260, ready: true, needs: 'pata-rival' },
+  { id: 'austral', name: 'Carretera Austral', country: 'Chile', lat: -44.6, lon: -72.55, landmark: 'Glaciar Queulat', rep: 340, ready: true, needs: 'niagara-rival', labelBelow: true },
   { id: 'london', name: 'Londres', country: 'Reino Unido', lat: 51.5, lon: -0.12, landmark: 'Torre do relógio', rep: 220, ready: false, needs: 'rio-rival' },
   { id: 'rome', name: 'Roma', country: 'Itália', lat: 41.89, lon: 12.49, landmark: 'Coliseu', rep: 320, ready: false, needs: 'rio-rival' },
   { id: 'bergen', name: 'Bergen', country: 'Noruega', lat: 60.39, lon: 5.32, landmark: 'Fiordes', rep: 420, ready: false, needs: 'rio-rival' },
@@ -64,6 +69,20 @@ export const EVENTS: RaceEvent[] = [
     rivals: [], prize: [10000, 6000, 3000, 800], fame: [40, 24, 12, 1], medals: [163.7, 171.8, 182.7] },
   { id: 'pata-rival', city: 'patagonia', track: 'patagonia', kind: 'rival', name: 'El Cóndor', blurb: 'O dono da Ruta del Fin del Mundo não divide a estrada com ninguém.', laps: 1, rep: 240,
     rivals: field(3, [12], D('El Cóndor', 0.97, 0.9, 0.97)), prize: [30000, 3500], fame: [140, 12] },
+  { id: 'niagara-run', city: 'niagara', track: 'niagara', kind: 'grid', name: 'Corrida das Cataratas', blurb: 'Das ilhas ao desfiladeiro, entre a névoa das cataratas e os neons da cidade. Chegada no teleférico.', laps: 1, rep: 260,
+    rivals: [...field(3, [1, 5, 3], D('Brock', 0.95, 0.6, 0.85), D('Léa', 0.935, 0.5, 0.9), D('Wade', 0.92, 0.8, 0.7)), ...field(2, [8, 6, 2, 7], D('Chloé', 0.905, 0.4, 0.8), D('Ethan', 0.89, 0.7, 0.6), D('Nadia', 0.875, 0.5, 0.7), D('Rory', 0.855, 0.6, 0.6))],
+    prize: [19000, 13300, 9500, 6400, 4300, 2900, 1800, 1100], fame: [75, 51, 35, 23, 15, 9, 5, 2] },
+  { id: 'niagara-trial', city: 'niagara', track: 'niagara', kind: 'trial', name: 'Sprint da Névoa', blurb: 'Estrada livre ao longo do desfiladeiro. Só você, a névoa e o cronômetro.', laps: 1, rep: 260,
+    rivals: [], prize: [12000, 7200, 3600, 900], fame: [45, 27, 14, 1], medals: NIAGARA_MEDALS },
+  { id: 'niagara-rival', city: 'niagara', track: 'niagara', kind: 'rival', name: 'O Barão do Neon', blurb: 'O dono das noites de Clifton Hill acelera sob as luzes e não deixa ninguém passar.', laps: 1, rep: 330,
+    rivals: field(3, [12], D('Barão do Neon', 0.975, 0.9, 0.97)), prize: [34000, 4000], fame: [160, 14] },
+  { id: 'austral-run', city: 'austral', track: 'austral', kind: 'grid', name: 'Corrida do Ripio', blurb: 'Lagos turquesa, pontes de madeira e a subida da Cuesta Queulat. Chegada na passagem.', laps: 1, rep: 340,
+    rivals: [...field(3, [1, 5, 3], D('Rodrigo', 0.955, 0.6, 0.85), D('Antonia', 0.94, 0.5, 0.9), D('Felipe', 0.925, 0.8, 0.7)), ...field(2, [8, 6, 2, 7], D('Catalina', 0.91, 0.4, 0.8), D('Matías', 0.895, 0.7, 0.6), D('Javiera', 0.88, 0.5, 0.7), D('Benjamín', 0.86, 0.6, 0.6))],
+    prize: [22000, 15400, 11000, 7400, 5000, 3300, 2100, 1300], fame: [85, 58, 40, 26, 17, 10, 5, 2] },
+  { id: 'austral-trial', city: 'austral', track: 'austral', kind: 'trial', name: 'Contra a Chuva', blurb: 'Estrada livre pela floresta úmida até o glaciar. Só você, a chuva e o cronômetro.', laps: 1, rep: 340,
+    rivals: [], prize: [14000, 8400, 4200, 1000], fame: [50, 30, 15, 1], medals: AUSTRAL_MEDALS },
+  { id: 'austral-rival', city: 'austral', track: 'austral', kind: 'rival', name: 'El Huemul', blurb: 'O guardião da Carretera Austral conhece cada pedra do ripio e nunca cede a pista.', laps: 1, rep: 400,
+    rivals: field(3, [12], D('El Huemul', 0.98, 0.9, 0.97)), prize: [38000, 4500], fame: [180, 16] },
 ];
 
 /** Everything the player owns and has set up for one car. */
@@ -81,7 +100,7 @@ export interface Career {
 
 export const newCareer = (): Career => ({
   v: 1, money: 2500, rep: 0, car: DEFAULT_CAR,
-  cars: { aurora: newSetup(), corvette: newSetup(), cuda: newSetup(), mustang: newSetup(), golf: newSetup(), m635: newSetup(), alfa155: newSetup() },
+  cars: Object.fromEntries(CARS.map((c) => [c.id, newSetup()])) as Record<CarId, CarSetup>,
   results: {}, ghost: {},
 });
 
@@ -99,8 +118,14 @@ export function buyPart(c: Career, p: PartId): boolean {
 
 /** Cars for the rivals of an event, in the same order as `ev.rivals`: the faster the driver, the faster the car. */
 const PACE_ORDER: CarId[] = ['corvette', 'm635', 'aurora', 'alfa155', 'mustang', 'cuda', 'golf'];
+/** Late-game rides (events from rep 260 up, strong drivers only), slowest first: early events never load these heavy models. */
+export const LATE_ORDER: CarId[] = ['e850', 'z8', 'cobra', 'viper', 'contgt', 'batur'];
 export function rivalCars(ev: RaceEvent): CarId[] {
-  return ev.rivals.map((r) => PACE_ORDER[Math.round((1 - Math.max(0, Math.min(1, (r.driver.skill - 0.8) / 0.17))) * (PACE_ORDER.length - 1))]);
+  return ev.rivals.map((r) => {
+    const sk = r.driver.skill;
+    if (ev.rep >= 260 && sk >= 0.9) return LATE_ORDER[Math.round(Math.max(0, Math.min(1, (sk - 0.9) / 0.08)) * (LATE_ORDER.length - 1))];
+    return PACE_ORDER[Math.round((1 - Math.max(0, Math.min(1, (sk - 0.8) / 0.17))) * (PACE_ORDER.length - 1))];
+  });
 }
 /** Physics spec of a rival: the event's part level on the rival's own car, with default tuning. */
 export function rivalSpec(level: number, car: CarId) {
@@ -108,6 +133,8 @@ export function rivalSpec(level: number, car: CarId) {
   return buildSpec(p, defaultTuning(), carById(car).spec);
 }
 
+/** A car is available when its reputation and event requirements (if any) are met. */
+export const carUnlocked = (def: CarDef, c: Pick<Career, 'rep' | 'results'>) => !def.unlock || (c.rep >= (def.unlock.rep ?? 0) && (!def.unlock.needs || c.results[def.unlock.needs]?.place === 1));
 export const eventOpen = (c: Career, e: RaceEvent) => c.rep >= e.rep;
 export const cityOpen = (c: Career, city: City) => city.ready && c.rep >= city.rep && (!city.needs || c.results[city.needs]?.place === 1);
 /** A city is finished once its rival event is won, or (without one) every event of the city has been won. */

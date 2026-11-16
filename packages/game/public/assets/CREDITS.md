@@ -7,6 +7,8 @@ All files in this folder come from [Poly Haven](https://polyhaven.com) and are l
 | kloppenheim_06_puresky_4k.hdr | [Kloppenheim 06 (Pure Sky)](https://polyhaven.com/a/kloppenheim_06_puresky) | Greg Zaal, Jarod Guest |
 | kloofendal_43d_clear_puresky_2k.hdr | [Kloofendal 43d Clear (Pure Sky)](https://polyhaven.com/a/kloofendal_43d_clear_puresky) | Greg Zaal |
 | kloofendal_48d_partly_cloudy_puresky_2k.hdr | [Kloofendal 48d Partly Cloudy (Pure Sky)](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) | Greg Zaal, Jarod Guest |
+| belfast_sunset_puresky_2k.hdr | [Belfast Sunset (Pure Sky)](https://polyhaven.com/a/belfast_sunset_puresky) | Greg Zaal |
+| kloofendal_overcast_puresky_2k.hdr | [Kloofendal Overcast (Pure Sky)](https://polyhaven.com/a/kloofendal_overcast_puresky) | Greg Zaal |
 | asphalt_04_*.jpg | [Asphalt 04](https://polyhaven.com/a/asphalt_04) | Jenelle van Heerden, Sergej Majboroda |
 | aerial_grass_rock_*.jpg | [Aerial Grass Rock](https://polyhaven.com/a/aerial_grass_rock) | Rob Tuytel |
 | aerial_beach_01_*.jpg | [Aerial Beach 01](https://polyhaven.com/a/aerial_beach_01) | Rob Tuytel |
@@ -47,7 +49,16 @@ Converted by `tools/build-cars.mjs` (see `tools/cars.config.mjs`) into `cars/<id
 | cars/golf.glb | 1976 Volkswagen Golf GTI | OUTPISTON | https://sketchfab.com/3d-models/1976-volkswagen-golf-gti-c3569d9df6c74b86ad7751ffa407c160 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
 | cars/m635.glb | 1986 BMW M635CSi | OUTPISTON | https://sketchfab.com/3d-models/1986-bmw-m635csi-61d93770624847f08c940e16cf646eeb | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
 | cars/alfa155.glb | 1992 Alfa Romeo 155 Q4 | OUTPISTON | https://sketchfab.com/3d-models/1992-alfa-romeo-155-q4-9be37de2d57d4c93bd472637a42b9db3 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/rsk.glb | 1959 porsche 718 rsk | amogusstrikesback2 | https://sketchfab.com/3d-models/1959-porsche-718-rsk-7c82d0dd94314973b433e41d37309416 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| cars/cobra.glb | 1966 shelby ac cobra 427 | amogusstrikesback2 | https://sketchfab.com/3d-models/1966-shelby-ac-cobra-427-204b49d0ae284dc7a3d1f44f71139648 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| cars/viper.glb | Dodge Viper RT/10 (SR1) | ilvskf | https://sketchfab.com/3d-models/dodge-viper-rt10-sr1-f09fc27ddbe1488da79e82fd669c57de | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| cars/camaro.glb | 1967 Chevrolet Camaro SS 350 Coupe | Ddiaz Design | https://sketchfab.com/3d-models/1967-chevrolet-camaro-ss-350-coupe-37ecedd9b5284cbfae74956eea2ad3fd | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/m1.glb | 1981 BMW M1 | OUTPISTON | https://sketchfab.com/3d-models/1981-bmw-m1-b9fd013a8fb446b6bef84f6861ce9bbd | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/e850.glb | 1995 BMW 850CSi | OUTPISTON | https://sketchfab.com/3d-models/1995-bmw-850csi-b57ab386922845f2bc79859d2a8caf4b | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/z8.glb | 2000 BMW Z8 | OUTPISTON | https://sketchfab.com/3d-models/2000-bmw-z8-a6d93ce610c243c4bbdd550a0474f4e2 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/contgt.glb | 2018 Bentley Continental GT | Ddiaz Design | https://sketchfab.com/3d-models/2018-bentley-continental-gt-229a4a6d8b7849fea2cf4f23510f9538 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| cars/batur.glb | 2023 Bentley Mulliner Batur | Ddiaz Design | https://sketchfab.com/3d-models/2023-bentley-mulliner-batur-fe97c93398a648cb96ef3acacea22a21 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
 
 Credit lines (as requested by the licence): "This work is based on "<title>" (<source>) by <author> licensed under <licence>", for each row above.
 
-**Non-commercial notice:** the Golf GTI, BMW M635CSi and Alfa 155 Q4 models are CC BY-NC-SA 4.0. Use is non-commercial only, and the modified `golf.glb`, `m635.glb` and `alfa155.glb` are shared under the same licence. Remove these three models before any commercial release.
+**Non-commercial notice:** the Golf GTI, BMW M635CSi, Alfa 155 Q4, Camaro SS 350, BMW M1, BMW 850CSi, BMW Z8, Bentley Continental GT and Bentley Mulliner Batur models are CC BY-NC-SA 4.0. Use is non-commercial only, and the modified `golf.glb`, `m635.glb`, `alfa155.glb`, `camaro.glb`, `m1.glb`, `e850.glb`, `z8.glb`, `contgt.glb` and `batur.glb` are shared under the same licence. Remove these nine models before any commercial release.

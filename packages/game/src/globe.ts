@@ -72,7 +72,7 @@ export class Globe {
     for (const city of CITIES) {
       const el = labels.get(city.id); if (!el) continue;
       v.copy(this.markers.get(city.id)!.position).add(CENTER); const facing = v.clone().sub(CENTER).normalize().dot(cam.position.clone().sub(CENTER).normalize());
-      v.project(cam); el.style.display = facing > 0.2 ? '' : 'none'; el.style.left = (v.x * 0.5 + 0.5) * w + 'px'; el.style.top = (-v.y * 0.5 + 0.5) * hh + 'px';
+      v.project(cam); el.style.display = facing > 0.2 ? '' : 'none'; el.style.left = (v.x * 0.5 + 0.5) * w + 'px'; el.style.top = (-v.y * 0.5 + 0.5) * hh + 'px'; el.style.transform = city.labelBelow ? 'translate(-50%,40%)' : '';
     }
   }
 }

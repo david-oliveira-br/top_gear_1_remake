@@ -1,0 +1,11 @@
+Model Information:
+* title:	Dodge Viper RT/10 (SR1)
+* source:	https://sketchfab.com/3d-models/dodge-viper-rt10-sr1-f09fc27ddbe1488da79e82fd669c57de
+* author:	ilvskf (https://sketchfab.com/ilvskf)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Dodge Viper RT/10 (SR1)" (https://sketchfab.com/3d-models/dodge-viper-rt10-sr1-f09fc27ddbe1488da79e82fd669c57de) by ilvskf (https://sketchfab.com/ilvskf) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

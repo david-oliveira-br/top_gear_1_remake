@@ -1,4 +1,6 @@
 export * from './track';
+export * from './tracks/niagara';
+export * from './tracks/austral';
 export * from './specs';
 export * from './car';
 export * from './ai';

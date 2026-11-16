@@ -72,6 +72,7 @@ function collectParts(doc, cfg) {
       const NM = [Mi[0], Mi[3], Mi[6], Mi[1], Mi[4], Mi[7], Mi[2], Mi[5], Mi[8]]; // inverse transpose
       for (const prim of mesh.listPrimitives()) {
         if (prim.getMode() !== 4 || !prim.getAttribute('POSITION')) continue;
+        if (cfg.dropMat && cfg.dropMat.test(prim.getMaterial()?.getName() ?? '')) continue;
         const attrs = {};
         for (const sem of KEEP) {
           const acc = prim.getAttribute(sem);

@@ -61,7 +61,7 @@ export interface WorldDef {
   /** wind (x, z) in m/s: rain slants and snow drifts with it (default [2.4, 1.2], the original slant) */
   wind?: [number, number];
   /** an arc-length range where the road is a bridge: terrain is not raised to it and no barrier/verge is drawn */
-  bridge?: BridgeRange;
+  bridge?: BridgeRange | BridgeRange[];
   /** how far (m) beyond the shoulder the road cut blends into the land */
   cutBlend?: number;
   /** metres of flat ground kept beyond the shoulder before the cut starts to blend (default 9) */
@@ -201,7 +201,9 @@ export class World {
     return Math.abs(locate(this.track, x, z, n, this.loc).lat);
   }
   /** 1 on the bridge (with short ramps at its ends), 0 elsewhere. */
-  bridgeW(s: number, ramp = 6) { const b = this.def.bridge; return b ? sstep(b.from - ramp, b.from + ramp, s) * (1 - sstep(b.to - ramp, b.to + ramp, s)) : 0; }
+  bridgeW(s: number, ramp = 6) { let m = 0; for (const b of this.bridges) m = Math.max(m, sstep(b.from - ramp, b.from + ramp, s) * (1 - sstep(b.to - ramp, b.to + ramp, s))); return m; }
+  /** The bridge ranges of the world definition as an array. */
+  get bridges(): BridgeRange[] { const b = this.def.bridge; return !b ? [] : Array.isArray(b) ? b : [b]; }
 
   private terrain() {
     const t = this.track, d = this.def, cell = this.cell, lim = this.lim, blend = d.cutBlend ?? 55;

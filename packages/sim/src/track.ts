@@ -1,5 +1,7 @@
 /** A closed circuit sampled at a fixed step along its centre line. Units are metres; x = east, z = south, y = up. */
 import type { WeatherKind } from './weather';
+import { NIAGARA } from './tracks/niagara';
+import { AUSTRAL } from './tracks/austral';
 
 export interface TrackDef {
   id: string;
@@ -234,4 +236,4 @@ export const PATAGONIA: TrackDef = {
 
 export const PATAGONIA_BRIDGE = { from: 2910, to: 3060 };
 
-export const TRACKS: Record<string, TrackDef> = { rio: RIO, coast: COAST, rockies: ROCKIES, patagonia: PATAGONIA };
+export const TRACKS: Record<string, TrackDef> = { rio: RIO, coast: COAST, rockies: ROCKIES, patagonia: PATAGONIA, niagara: NIAGARA, austral: AUSTRAL };

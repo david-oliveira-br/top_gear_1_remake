@@ -58,5 +58,95 @@
     "paintable": true,
     "staticWheels": false,
     "tris": 69969
+  },
+  "rsk": {
+    "wheelbase": 2.22,
+    "track": 1.299,
+    "wheelR": 0.347,
+    "halfW": 0.824,
+    "halfL": 2.075,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 34944
+  },
+  "cobra": {
+    "wheelbase": 2.29,
+    "track": 1.496,
+    "wheelR": 0.331,
+    "halfW": 0.894,
+    "halfL": 2.009,
+    "paintable": false,
+    "staticWheels": false,
+    "tris": 25176
+  },
+  "viper": {
+    "wheelbase": 2.44,
+    "track": 1.487,
+    "wheelR": 0.327,
+    "halfW": 0.976,
+    "halfL": 2.22,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 53090
+  },
+  "camaro": {
+    "wheelbase": 2.74,
+    "track": 1.541,
+    "wheelR": 0.325,
+    "halfW": 0.947,
+    "halfL": 2.336,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 47866
+  },
+  "m1": {
+    "wheelbase": 2.56,
+    "track": 1.537,
+    "wheelR": 0.315,
+    "halfW": 1.007,
+    "halfL": 2.177,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 56212
+  },
+  "e850": {
+    "wheelbase": 2.68,
+    "track": 1.558,
+    "wheelR": 0.323,
+    "halfW": 1.039,
+    "halfL": 2.404,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 55945
+  },
+  "z8": {
+    "wheelbase": 2.5,
+    "track": 1.594,
+    "wheelR": 0.34,
+    "halfW": 0.966,
+    "halfL": 2.179,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 57077
+  },
+  "contgt": {
+    "wheelbase": 2.85,
+    "track": 1.638,
+    "wheelR": 0.38,
+    "halfW": 1.111,
+    "halfL": 2.424,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 57719
+  },
+  "batur": {
+    "wheelbase": 2.85,
+    "track": 1.642,
+    "wheelR": 0.37,
+    "halfW": 1.131,
+    "halfL": 2.45,
+    "paintable": true,
+    "staticWheels": false,
+    "tris": 56649
   }
 }
